@@ -4,8 +4,11 @@
 //! find in any other rust crate.
 //!
 
+use std::collections::HashMap;
+use ndarray::Array2;
 use geo::{Coord, CoordNum, LineString};
 use line_drawing::{Supercover, SignedNum};
+use std::hash::Hash;
 
 /// Rasterizes a geo::LineString onto a grid of integer coordinates.
 ///
@@ -77,41 +80,218 @@ pub fn rasterize_linestring<T>(ls: &LineString<T>) -> Vec<Coord<T>>
     out
 }
 
-//
-// use rayon::prelude::*;
-// use geo::{LineString, Coord};
-// use line_drawing::Supercover;
-// 
-// pub fn rasterize_linestring_parallel<T>(ls: &LineString<T>) -> Vec<Coord<T>>
-// where
-//     T: CoordNum + SignedNum + Send + Sync + Copy,
-// {
-//     // Process each segment in parallel
-//     let mut segment_vecs: Vec<Vec<Coord<T>>> = ls.0.windows(2)
-//         .collect::<Vec<_>>()  // collect windows so we can par_iter
-//         .par_iter()
-//         .map(|w| {
-//             let mut seg_coords = Vec::new();
-//             for (x, y) in Supercover::new((w[0].x, w[0].y), (w[1].x, w[1].y)) {
-//                 seg_coords.push(Coord { x, y });
-//             }
-//             seg_coords
-//         })
-//         .collect();
-// 
-//     // Flatten segments into one Vec, removing duplicates at segment boundaries
-//     let mut out = Vec::new();
-//     for seg in segment_vecs.drain(..) {
-//         if !out.is_empty() && !seg.is_empty() {
-//             // Remove first cell if it duplicates last of previous segment
-//             if out.last() == Some(&seg[0]) {
-//                 out.extend_from_slice(&seg[1..]);
-//                 continue;
-//             }
-//         }
-//         out.extend_from_slice(&seg);
-//     }
-// 
-//     out
-// }
-// 
+/// Marching squares
+///
+/// Extracts boundary edges from a 2d array.  A horizontal or vertical edge exists between
+/// two cells if they have
+/// different values. It is intended for
+/// grids containing region or watershed labels, where each distinct value represents
+/// a separate area and you want to get the boundary edges.
+///
+/// # Parameters
+///
+/// - `grid`: A 2D array of values representing labeled regions.
+///
+/// # Returns
+///
+/// A HashMap mapping each unique grid value to a list of edges `(Coord<usize>, Coord<usize>)`
+/// associated with that region.
+///
+/// # Notes
+///
+/// - Interior cells that are completely surrounded by the same value won't generate an edge.
+/// - This function does **not** return full polygon boundaries; it only identifies
+///   boundary edges that will need to be assembled into a polygon
+///
+/// # Examples
+///
+/// ```
+/// use ndarray::{array, Array2};
+/// use std::collections::HashMap;
+/// use geo::{Coord};
+/// use std::hash::Hash;
+///
+/// let grid = array![
+///     [1],
+/// ];
+/// assert_eq!(geospatial::marching_squares(&grid)[&1],
+///     vec![
+///         (Coord{ x: 0, y: 0}, Coord{ x: 1, y: 0}),
+///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 0, y: 0}, Coord{ x: 0, y: 1}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 1, y: 1}),
+///     ]
+/// );
+///
+/// let grid = array![
+///     [1, 1],
+/// ];
+/// assert_eq!(geospatial::marching_squares(&grid)[&1],
+///     vec![
+///         (Coord{ x: 0, y: 0}, Coord{ x: 1, y: 0}),
+///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 2, y: 0}),
+///         (Coord{ x: 1, y: 1}, Coord{ x: 2, y: 1}),
+///         (Coord{ x: 0, y: 0}, Coord{ x: 0, y: 1}),
+///         (Coord{ x: 2, y: 0}, Coord{ x: 2, y: 1}),
+///     ]
+/// );
+///
+/// let grid = array![
+///     [1, 1],
+///     [2, 1],
+/// ];
+/// let e = geospatial::marching_squares(&grid);
+/// assert_eq!(e[&1],
+///     vec![
+///         (Coord{ x: 0, y: 0}, Coord{ x: 1, y: 0}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 2, y: 0}),
+///         (Coord{ x: 1, y: 2}, Coord{ x: 2, y: 2}),
+///         (Coord{ x: 0, y: 0}, Coord{ x: 0, y: 1}),
+///         (Coord{ x: 2, y: 0}, Coord{ x: 2, y: 1}),
+///         (Coord{ x: 2, y: 1}, Coord{ x: 2, y: 2}),
+///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 1, y: 1}, Coord{ x: 1, y: 2}),
+///     ]
+/// );
+/// assert_eq!(e[&2],
+///     vec![
+///         (Coord{ x: 0, y: 2}, Coord{ x: 1, y: 2}),
+///         (Coord{ x: 0, y: 1}, Coord{ x: 0, y: 2}),
+///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 1, y: 1}, Coord{ x: 1, y: 2}),
+///     ]
+/// );
+/// let grid = array![
+///     [4, 1, 1, 2],
+///     [1, 1, 2, 3],
+///     [1, 2, 2, 2],
+/// ];
+/// let e = geospatial::marching_squares(&grid);
+/// assert_eq!(e[&4],
+///     vec![
+///         (Coord{ x: 0, y: 0}, Coord{ x: 1, y: 0}),
+///         (Coord{ x: 0, y: 0}, Coord{ x: 0, y: 1}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
+///     ]
+/// );
+/// assert_eq!(e[&3],
+///     vec![
+///         (Coord{ x: 4, y: 1}, Coord{ x: 4, y: 2}),
+///         (Coord{ x: 3, y: 1}, Coord{ x: 3, y: 2}),
+///         (Coord{ x: 3, y: 1}, Coord{ x: 4, y: 1}),
+///         (Coord{ x: 3, y: 2}, Coord{ x: 4, y: 2}),
+///     ]
+/// );
+/// assert_eq!(e[&2],
+///     vec![
+///         (Coord{ x: 1, y: 3}, Coord{ x: 2, y: 3}),
+///         (Coord{ x: 2, y: 3}, Coord{ x: 3, y: 3}),
+///         (Coord{ x: 3, y: 0}, Coord{ x: 4, y: 0}),
+///         (Coord{ x: 3, y: 3}, Coord{ x: 4, y: 3}),
+///         (Coord{ x: 4, y: 0}, Coord{ x: 4, y: 1}),
+///         (Coord{ x: 4, y: 2}, Coord{ x: 4, y: 3}),
+///         (Coord{ x: 3, y: 0}, Coord{ x: 3, y: 1}),
+///         (Coord{ x: 2, y: 1}, Coord{ x: 3, y: 1}),
+///         (Coord{ x: 2, y: 1}, Coord{ x: 2, y: 2}),
+///         (Coord{ x: 1, y: 2}, Coord{ x: 2, y: 2}),
+///         (Coord{ x: 3, y: 1}, Coord{ x: 3, y: 2}),
+///         (Coord{ x: 3, y: 1}, Coord{ x: 4, y: 1}),
+///         (Coord{ x: 3, y: 2}, Coord{ x: 4, y: 2}),
+///         (Coord{ x: 1, y: 2}, Coord{ x: 1, y: 3}),
+///     ]
+/// );
+/// assert_eq!(e[&1],
+///     vec![
+///         (Coord{ x: 0, y: 3}, Coord{ x: 1, y: 3}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 2, y: 0}),
+///         (Coord{ x: 2, y: 0}, Coord{ x: 3, y: 0}),
+///         (Coord{ x: 0, y: 1}, Coord{ x: 0, y: 2}),
+///         (Coord{ x: 0, y: 2}, Coord{ x: 0, y: 3}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 3, y: 0}, Coord{ x: 3, y: 1}),
+///         (Coord{ x: 2, y: 1}, Coord{ x: 3, y: 1}),
+///         (Coord{ x: 2, y: 1}, Coord{ x: 2, y: 2}),
+///         (Coord{ x: 1, y: 2}, Coord{ x: 2, y: 2}),
+///         (Coord{ x: 1, y: 2}, Coord{ x: 1, y: 3}),
+///     ]
+/// );
+///
+/// ```
+pub fn marching_squares<T>(grid: &Array2<T>) -> HashMap<T, Vec<(Coord<usize>, Coord<usize>)>>
+where
+    T: Eq + Hash + Copy,
+{
+    let mut ret: HashMap<T, Vec<(Coord<usize>, Coord<usize>)>> = HashMap::new();
+    let (nrows, ncols) = grid.dim();
+
+    // we need edges around the entire grid, process top/bot row and left/right col at same time
+    for c in 0..ncols {
+        let r = 0;
+        let me = grid[[r, c]];
+        let edge = (Coord {x: c, y: r}, Coord {x: c+1, y: r});
+        ret.entry(me).or_default().push(edge);
+        let r = nrows-1;
+        let me = grid[[r, c]];
+        let edge = (Coord {x: c, y: r+1}, Coord {x: c+1, y: r+1});
+        ret.entry(me).or_default().push(edge);
+    }
+    for r in 0..nrows {
+        let c = 0;
+        let me = grid[[r, c]];
+        let edge = (Coord {x: c, y: r}, Coord {x: c, y: r+1});
+        ret.entry(me).or_default().push(edge);
+        let c = ncols-1;
+        let me = grid[[r, c]];
+        let edge = (Coord {x: c+1, y: r}, Coord {x: c+1, y: r+1});
+        ret.entry(me).or_default().push(edge);
+    }
+   
+    // fill in the interior
+    for r in 0..nrows-1 {
+        for c in 0..ncols-1 {
+            let me = grid[[r, c]];
+            let right = grid[[r, c+1]];
+            let down = grid[[r+1, c]];
+            if me != right {
+                let edge = (Coord {x: c+1, y: r}, Coord {x: c+1, y: r+1 });
+                ret.entry(me).or_default().push(edge);
+                ret.entry(right).or_default().push(edge);
+            }
+            if me != down {
+                let edge = (Coord {x: c, y: r+1}, Coord {x: c+1, y: r+1 });
+                ret.entry(me).or_default().push(edge);
+                ret.entry(down).or_default().push(edge);
+            }
+        }
+    }
+
+    // last column, except bottom right hand cell
+    for r in 0..nrows-1 {
+        let c = ncols-1;
+        let me = grid[[r, c]];
+        let down = grid[[r+1, c]];
+        if me != down {
+            let edge = (Coord {x: c, y: r+1}, Coord {x: c+1, y: r+1});
+            ret.entry(me).or_default().push(edge);
+            ret.entry(down).or_default().push(edge);
+        }
+    }
+
+    // last row, except bottom right hand cell
+    for c in 0..ncols-1 {
+        let r = nrows-1;
+        let me = grid[[r, c]];
+        let right = grid[[r, c+1]];
+        if me != right {
+            let edge = (Coord {x: c+1, y: r}, Coord {x: c+1, y: r+1});
+            ret.entry(me).or_default().push(edge);
+            ret.entry(right).or_default().push(edge);
+        }
+    }
+    
+    ret
+}
+

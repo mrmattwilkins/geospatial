@@ -1,5 +1,5 @@
-use geospatial::rasterize_linestring;
 use geo::{Coord, LineString};
+use geospatial::rasterize_linestring;
 
 fn main() {
     let ls: LineString<isize> = LineString::new(vec![
@@ -20,4 +20,3 @@ fn main() {
     let rls = rasterize_linestring(&ls);
     println!("ls={:?} rls={:?}", ls, rls);
 }
-
