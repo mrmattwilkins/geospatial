@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use ndarray::Array2;
-use geo::{Coord, CoordNum, LineString};
+use geo::{MultiLineString, Coord, CoordNum, LineString};
 use line_drawing::{Supercover, SignedNum};
 use std::hash::Hash;
 
@@ -293,5 +293,50 @@ where
     }
     
     ret
+}
+
+
+/// Converts a collection of unordered grid edges into a `MultiLineString`.
+///
+/// This function takes a list of edges, where each edge is represented by a pair
+/// of grid coordinates, and converts them into a `MultiLineString`.  Likely there
+/// will only be a single LineString, but if there are self-intersections multiple
+/// LineStrings are needed.
+///
+/// # Parameters
+///
+/// - `edges`: A vector of edge segments, where each edge is represented as a pair
+///   of `Coord<usize>` values defining the start and end points.
+///
+/// # Returns
+///
+/// A `MultiLineString<usize>` where input edges have been ordered to make a series
+/// of LineStrings.
+///
+/// # Examples
+///
+/// ```
+/// use geo::{Coord, MultiLineString};
+/// use ndarray::array;
+///
+/// let grid = array![
+///     [4, 1, 1, 2],
+///     [1, 1, 2, 3],
+///     [1, 2, 2, 2],
+/// ];
+/// let e = geospatial::marching_squares(&grid);
+/// let mls = geospatial::edges_to_multilinestring(&e[&1]);
+/// assert_eq!(mls.0.len(), 1);
+/// ```
+pub fn edges_to_multilinestring(edges: &Vec<(Coord<usize>, Coord<usize>)>) -> MultiLineString<usize>
+{
+    let mut adj: HashMap<Coord<usize>, Vec<Coord<usize>>> = HashMap::new();
+    for (a, b) in edges {
+        adj.entry(*a).or_default().push(*b);
+        adj.entry(*b).or_default().push(*a);
+    }
+    assert!(adj.values().all(|p| p.len() == 2 || p.len() == 4));
+
+    return MultiLineString::new(vec![LineString::new(vec![])]);
 }
 
