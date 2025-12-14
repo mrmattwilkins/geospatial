@@ -296,12 +296,13 @@ where
     ret
 }
 
-/// Converts a collection of unordered grid edges into a `MultiLineString`.
+/// Converts a collection of unordered grid edges that form a bunch of rings nto a
+/// `MultiLineString`.
 ///
 /// This function takes a list of edges, where each edge is represented by a pair
 /// of grid coordinates, and converts them into a `MultiLineString`.  Likely there
 /// will only be a single LineString, but if there are self-intersections multiple
-/// LineStrings are needed.
+/// LineStrings are needed.  The edges should completely encircle regions.
 ///
 /// # Parameters
 ///
