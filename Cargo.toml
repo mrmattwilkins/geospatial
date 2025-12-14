@@ -16,6 +16,6 @@ categories = ["science::geo"]
 opt-level = 3
 
 [dependencies]
-geo = ">=0.30.0, <0.40.0"
+geo = ">=0.20.0, <0.40.0"
 line_drawing = ">=1.0.0, < 2.0.0"
 ndarray = "0.16.1"
