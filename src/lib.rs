@@ -340,3 +340,4 @@ pub fn edges_to_multilinestring(
     assert!(adj.values().all(|p| p.len() == 2 || p.len() == 4));
     return MultiLineString::new(vec![LineString::new(vec![])]);
 }
+
