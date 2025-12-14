@@ -4,10 +4,10 @@
 //! find in any other rust crate.
 //!
 
-use std::collections::HashMap;
+use geo::{Coord, CoordNum, LineString, MultiLineString};
+use line_drawing::{SignedNum, Supercover};
 use ndarray::Array2;
-use geo::{MultiLineString, Coord, CoordNum, LineString};
-use line_drawing::{Supercover, SignedNum};
+use std::collections::HashMap;
 use std::hash::Hash;
 
 /// Rasterizes a geo::LineString onto a grid of integer coordinates.
@@ -66,12 +66,13 @@ use std::hash::Hash;
 /// assert_eq!(geospatial::rasterize_linestring(&ls), vec![]);
 /// ```
 pub fn rasterize_linestring<T>(ls: &LineString<T>) -> Vec<Coord<T>>
-    where T: CoordNum + SignedNum
+where
+    T: CoordNum + SignedNum,
 {
     let mut out = Vec::new();
     for w in ls.0.windows(2) {
         for (x, y) in Supercover::new((w[0].x, w[0].y), (w[1].x, w[1].y)) {
-            let c = Coord {x, y};
+            let c = Coord { x, y };
             if Some(&c) != out.last() {
                 out.push(c);
             }
@@ -231,37 +232,37 @@ where
     for c in 0..ncols {
         let r = 0;
         let me = grid[[r, c]];
-        let edge = (Coord {x: c, y: r}, Coord {x: c+1, y: r});
+        let edge = (Coord { x: c, y: r }, Coord { x: c + 1, y: r });
         ret.entry(me).or_default().push(edge);
-        let r = nrows-1;
+        let r = nrows - 1;
         let me = grid[[r, c]];
-        let edge = (Coord {x: c, y: r+1}, Coord {x: c+1, y: r+1});
+        let edge = (Coord { x: c, y: r + 1 }, Coord { x: c + 1, y: r + 1 });
         ret.entry(me).or_default().push(edge);
     }
     for r in 0..nrows {
         let c = 0;
         let me = grid[[r, c]];
-        let edge = (Coord {x: c, y: r}, Coord {x: c, y: r+1});
+        let edge = (Coord { x: c, y: r }, Coord { x: c, y: r + 1 });
         ret.entry(me).or_default().push(edge);
-        let c = ncols-1;
+        let c = ncols - 1;
         let me = grid[[r, c]];
-        let edge = (Coord {x: c+1, y: r}, Coord {x: c+1, y: r+1});
+        let edge = (Coord { x: c + 1, y: r }, Coord { x: c + 1, y: r + 1 });
         ret.entry(me).or_default().push(edge);
     }
-   
+
     // fill in the interior
-    for r in 0..nrows-1 {
-        for c in 0..ncols-1 {
+    for r in 0..nrows - 1 {
+        for c in 0..ncols - 1 {
             let me = grid[[r, c]];
-            let right = grid[[r, c+1]];
-            let down = grid[[r+1, c]];
+            let right = grid[[r, c + 1]];
+            let down = grid[[r + 1, c]];
             if me != right {
-                let edge = (Coord {x: c+1, y: r}, Coord {x: c+1, y: r+1 });
+                let edge = (Coord { x: c + 1, y: r }, Coord { x: c + 1, y: r + 1 });
                 ret.entry(me).or_default().push(edge);
                 ret.entry(right).or_default().push(edge);
             }
             if me != down {
-                let edge = (Coord {x: c, y: r+1}, Coord {x: c+1, y: r+1 });
+                let edge = (Coord { x: c, y: r + 1 }, Coord { x: c + 1, y: r + 1 });
                 ret.entry(me).or_default().push(edge);
                 ret.entry(down).or_default().push(edge);
             }
@@ -269,32 +270,31 @@ where
     }
 
     // last column, except bottom right hand cell
-    for r in 0..nrows-1 {
-        let c = ncols-1;
+    for r in 0..nrows - 1 {
+        let c = ncols - 1;
         let me = grid[[r, c]];
-        let down = grid[[r+1, c]];
+        let down = grid[[r + 1, c]];
         if me != down {
-            let edge = (Coord {x: c, y: r+1}, Coord {x: c+1, y: r+1});
+            let edge = (Coord { x: c, y: r + 1 }, Coord { x: c + 1, y: r + 1 });
             ret.entry(me).or_default().push(edge);
             ret.entry(down).or_default().push(edge);
         }
     }
 
     // last row, except bottom right hand cell
-    for c in 0..ncols-1 {
-        let r = nrows-1;
+    for c in 0..ncols - 1 {
+        let r = nrows - 1;
         let me = grid[[r, c]];
-        let right = grid[[r, c+1]];
+        let right = grid[[r, c + 1]];
         if me != right {
-            let edge = (Coord {x: c+1, y: r}, Coord {x: c+1, y: r+1});
+            let edge = (Coord { x: c + 1, y: r }, Coord { x: c + 1, y: r + 1 });
             ret.entry(me).or_default().push(edge);
             ret.entry(right).or_default().push(edge);
         }
     }
-    
+
     ret
 }
-
 
 /// Converts a collection of unordered grid edges into a `MultiLineString`.
 ///
@@ -328,15 +328,14 @@ where
 /// let mls = geospatial::edges_to_multilinestring(&e[&1]);
 /// assert_eq!(mls.0.len(), 1);
 /// ```
-pub fn edges_to_multilinestring(edges: &Vec<(Coord<usize>, Coord<usize>)>) -> MultiLineString<usize>
-{
+pub fn edges_to_multilinestring(
+    edges: &Vec<(Coord<usize>, Coord<usize>)>,
+) -> MultiLineString<usize> {
     let mut adj: HashMap<Coord<usize>, Vec<Coord<usize>>> = HashMap::new();
     for (a, b) in edges {
         adj.entry(*a).or_default().push(*b);
         adj.entry(*b).or_default().push(*a);
     }
     assert!(adj.values().all(|p| p.len() == 2 || p.len() == 4));
-
     return MultiLineString::new(vec![LineString::new(vec![])]);
 }
-
