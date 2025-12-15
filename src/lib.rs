@@ -452,11 +452,6 @@ where
         }
 
     }
-<<<<<<< HEAD
-    assert!(adj.values().all(|p| p.len() == 2 || p.len() == 4));
-
-    return MultiLineString::new(vec![LineString::new(vec![])]);
-=======
     // a helper that makes a single ring.  assumes we start at a point with two neighbours
     // id and grid are used to figure out correct direction at a knot
     fn aring<T>(adj: &HashMap<Coord<usize>, Vec<Coord<usize>>>, start: Coord<usize>, id: T, grid: &Array2<T>) -> Vec<Coord<usize>>
