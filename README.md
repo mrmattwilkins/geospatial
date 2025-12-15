@@ -36,3 +36,20 @@ let grid = array![
 let e = marching_squares(&grid);
 ```
 
+## Example of edges from marching squares into MultiLineString
+
+```
+use ndarray::array;
+use geospatial::{edges_to_multilinestring, marching_squares};
+use geo::MultiPolygon;
+
+let grid = array![
+    [1, 0, 0, 1],
+    [2, 1, 0, 1],
+    [0, 2, 1, 1],
+];
+let e = marching_squares(&grid);
+let mls = edges_to_multilinestring(1, &e[&1], &grid);
+let polygons = mls.polygonize();
+let mp = MultiPolygon(polygons);
+```
