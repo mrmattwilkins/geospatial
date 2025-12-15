@@ -406,7 +406,7 @@ pub fn edges_to_multilinestring<T>(
     grid: &Array2<T>,
 ) -> MultiLineString<usize>
 where
-    T: Eq + Hash + Copy + std::fmt::Debug,
+    T: Eq + Hash + Copy,
 {
     // return which two points are adjancent to our grid cell when we hit a knot
     // p is previous
@@ -455,6 +455,7 @@ where
             return [p, Coord { x: col + 1, y: row }];
         }
     }
+
     // a helper that makes a single ring.  assumes we start at a point with two neighbours
     // id and grid are used to figure out correct direction at a knot
     fn aring<T>(
@@ -464,62 +465,42 @@ where
         grid: &Array2<T>,
     ) -> Vec<Coord<usize>>
     where
-        T: Eq + Hash + Copy + std::fmt::Debug,
+        T: Eq + Hash + Copy,
     {
         let mut ring: Vec<Coord<usize>> = Vec::new();
         let mut cur = start;
+        let mut prev: Coord<usize> = adj[&cur][0];
 
         // storage for knot-case neighbours
         let mut knot_coords: [Coord<usize>; 2];
 
-        // our neighbours, if if there are four we need to do more work
-        let mut n: &[Coord<usize>] = &adj[&cur];
-        if n.len() == 4 {
-            knot_coords = adjcoords(n[0], cur, id, grid);
-            n = &knot_coords;
-        }
-
-        let mut prev: Coord<usize> = n[0];
-
         loop {
-            //println!("id={:?}, start={:?}, prev={:?}, cur={:?}", id, start, prev, cur);
-            //let row = cur.y;
-            //let col = cur.x;
-            //println!("{:?}", grid.slice(s![ (row-2) .. (row+2), (col-2) .. (col+2)]));
             ring.push(cur);
-            // our neighbours, if if there are four we need to do more work
-            n = &adj[&cur];
-            //println!("n = {:?}", n);
+            let mut n: &[Coord<usize>] = &adj[&cur];
             if n.len() == 4 {
                 knot_coords = adjcoords(prev, cur, id, grid);
                 n = &knot_coords;
-                //println!("kn = {:?}", n);
             }
             if prev == n[0] && n[1] != start {
                 prev = cur;
-                cur = n[1]
+                cur = n[1];
             } else if prev == n[1] && n[0] != start {
                 prev = cur;
-                cur = n[0]
+                cur = n[0];
             } else {
                 break;
             }
-            //println!("picking next = {:?}", cur);
         }
         ring.push(start);
 
         return ring;
     }
 
-    // start with a copy of edges
+    // start with a copy of edges since we will be constantly updating these
     let mut edges = edges.clone();
-
-    //println!("There are {} edges so far", edges.len());
 
     let mut rings: Vec<LineString<usize>> = Vec::new();
     while edges.len() != 0 {
-        //println!("There are {} edges so far", edges.len());
-
         // build the adjancey
         let mut adj: HashMap<Coord<usize>, Vec<Coord<usize>>> = HashMap::new();
         for (a, b) in &edges {
@@ -528,9 +509,8 @@ where
         }
         assert!(adj.values().all(|p| p.len() == 2 || p.len() == 4));
 
-        // first point of first edge will do
+        // first point of first edge will do to make a ring
         let start = edges[0].0;
-
         let ring = aring::<T>(&adj, start, id, &grid);
         rings.push(LineString(ring.clone()));
 
