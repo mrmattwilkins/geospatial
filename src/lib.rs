@@ -7,7 +7,7 @@
 use geo::{Coord, CoordNum, LineString, MultiLineString};
 use line_drawing::{SignedNum, Supercover};
 use ndarray::Array2;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 /// Rasterizes a geo::LineString onto a grid of integer coordinates.
@@ -400,9 +400,13 @@ where
 ///    Coord { x: 3, y: 1 },
 /// ]));
 /// ```
-pub fn edges_to_multilinestring<T>(id: T, edges: &Vec<(Coord<usize>, Coord<usize>)>, grid: &Array2<T>) -> MultiLineString<usize>
+pub fn edges_to_multilinestring<T>(
+    id: T,
+    edges: &Vec<(Coord<usize>, Coord<usize>)>,
+    grid: &Array2<T>,
+) -> MultiLineString<usize>
 where
-    T: Eq + Hash + Copy + std::fmt::Debug
+    T: Eq + Hash + Copy + std::fmt::Debug,
 {
     // return which two points are adjancent to our grid cell when we hit a knot
     // p is previous
@@ -416,47 +420,51 @@ where
         // this is kinda tricky, so be explicit
 
         // moving right
-        if p.x == c.x-1 {
+        if p.x == c.x - 1 {
             // moving up
-            if grid[[row-1, col-1]] == id {
-                return [p, Coord{x:col, y:row-1}];
+            if grid[[row - 1, col - 1]] == id {
+                return [p, Coord { x: col, y: row - 1 }];
             }
             // moving down
-            return [p, Coord{x:col, y:row+1}];
+            return [p, Coord { x: col, y: row + 1 }];
 
         // moving left
-        } else if p.x == c.x+1 {
+        } else if p.x == c.x + 1 {
             // moving up
-            if grid[[row-1, col]] == id {
-                return [p, Coord{x:col, y:row-1}];
-            } 
+            if grid[[row - 1, col]] == id {
+                return [p, Coord { x: col, y: row - 1 }];
+            }
             // moving down
-            return [p, Coord{x:col, y:row+1}];
+            return [p, Coord { x: col, y: row + 1 }];
 
         // moving down
-        } else if p.y == c.y-1 {
+        } else if p.y == c.y - 1 {
             // moving left
-            if grid[[row-1, col-1]] == id {
-                return [p, Coord{x:col-1, y:row}];
+            if grid[[row - 1, col - 1]] == id {
+                return [p, Coord { x: col - 1, y: row }];
             }
-            return [p, Coord{x:col+1, y:row}];
+            return [p, Coord { x: col + 1, y: row }];
 
         // moving up
         } else {
             // moving left
-            if grid[[row, col-1]] == id {
-                return [p, Coord{x:col-1, y:row}];
+            if grid[[row, col - 1]] == id {
+                return [p, Coord { x: col - 1, y: row }];
             }
             // moving right
-            return [p, Coord{x:col+1, y:row}];
+            return [p, Coord { x: col + 1, y: row }];
         }
-
     }
     // a helper that makes a single ring.  assumes we start at a point with two neighbours
     // id and grid are used to figure out correct direction at a knot
-    fn aring<T>(adj: &HashMap<Coord<usize>, Vec<Coord<usize>>>, start: Coord<usize>, id: T, grid: &Array2<T>) -> Vec<Coord<usize>>
+    fn aring<T>(
+        adj: &HashMap<Coord<usize>, Vec<Coord<usize>>>,
+        start: Coord<usize>,
+        id: T,
+        grid: &Array2<T>,
+    ) -> Vec<Coord<usize>>
     where
-        T: Eq + Hash + Copy + std::fmt::Debug
+        T: Eq + Hash + Copy + std::fmt::Debug,
     {
         let mut ring: Vec<Coord<usize>> = Vec::new();
         let mut cur = start;
@@ -526,11 +534,12 @@ where
         let ring = aring::<T>(&adj, start, id, &grid);
         rings.push(LineString(ring.clone()));
 
-        let myedges: HashSet<(Coord<usize>, Coord<usize>)> = ring.windows(2).flat_map(|w| vec![(w[0], w[1]), (w[1], w[0])]).collect();
+        let myedges: HashSet<(Coord<usize>, Coord<usize>)> = ring
+            .windows(2)
+            .flat_map(|w| vec![(w[0], w[1]), (w[1], w[0])])
+            .collect();
         edges = edges.into_iter().filter(|e| !myedges.contains(e)).collect();
     }
 
     return MultiLineString::new(rings);
->>>>>>> 77bc0c003201a6d4c46ed823a239a892ac2a1c7f
 }
-
