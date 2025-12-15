@@ -41,7 +41,7 @@ let e = marching_squares(&grid);
 ```
 use ndarray::array;
 use geospatial::{edges_to_multilinestring, marching_squares};
-use geo::MultiPolygon;
+use geo::{Polygon, MultiPolygon};
 
 let grid = array![
     [1, 0, 0, 1],
@@ -50,6 +50,10 @@ let grid = array![
 ];
 let e = marching_squares(&grid);
 let mls = edges_to_multilinestring(1, &e[&1], &grid);
-let polygons = mls.polygonize();
-let mp = MultiPolygon(polygons);
+let mp: MultiPolygon<usize> = MultiPolygon(
+    mls.0
+        .into_iter()
+        .map(|ls| Polygon::<usize>::new(ls, vec![]))
+        .collect(),
+);
 ```
