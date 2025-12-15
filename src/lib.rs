@@ -7,7 +7,7 @@
 use geo::{Coord, CoordNum, LineString, MultiLineString};
 use line_drawing::{SignedNum, Supercover};
 use ndarray::Array2;
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::hash::Hash;
 
 /// Rasterizes a geo::LineString onto a grid of integer coordinates.
@@ -296,12 +296,13 @@ where
     ret
 }
 
-/// Converts a collection of unordered grid edges into a `MultiLineString`.
+/// Converts a collection of unordered grid edges that form a bunch of rings nto a
+/// `MultiLineString`.
 ///
 /// This function takes a list of edges, where each edge is represented by a pair
 /// of grid coordinates, and converts them into a `MultiLineString`.  Likely there
 /// will only be a single LineString, but if there are self-intersections multiple
-/// LineStrings are needed.
+/// LineStrings are needed.  The edges should completely encircle regions.
 ///
 /// # Parameters
 ///
@@ -316,27 +317,225 @@ where
 /// # Examples
 ///
 /// ```
-/// use geo::{Coord, MultiLineString};
+/// use geo::{Coord, MultiLineString, LineString};
 /// use ndarray::array;
 ///
+/// let grid = array![[0]];
+/// let e = geospatial::marching_squares(&grid);
+/// let mls = geospatial::edges_to_multilinestring(0, &e[&0], &grid);
+/// assert_eq!(mls.0.len(), 1);
+/// assert_eq!(mls.0[0], LineString::from(vec![
+///    Coord { x: 0, y: 0 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 0, y: 0 },
+/// ]));
 /// let grid = array![
-///     [4, 1, 1, 2],
-///     [1, 1, 2, 3],
-///     [1, 2, 2, 2],
+///     [0, 1],
+///     [1, 1],
 /// ];
 /// let e = geospatial::marching_squares(&grid);
-/// let mls = geospatial::edges_to_multilinestring(&e[&1]);
+/// let mls = geospatial::edges_to_multilinestring(0, &e[&0], &grid);
 /// assert_eq!(mls.0.len(), 1);
+/// assert_eq!(mls.0[0], LineString::from(vec![
+///    Coord { x: 0, y: 0 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 0, y: 0 },
+/// ]));
+/// let grid = array![
+///     [1, 1],
+///     [1, 1],
+/// ];
+/// let e = geospatial::marching_squares(&grid);
+/// let mls = geospatial::edges_to_multilinestring(1, &e[&1], &grid);
+/// assert_eq!(mls.0.len(), 1);
+/// assert_eq!(mls.0[0], LineString::from(vec![
+///    Coord { x: 0, y: 0 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 0, y: 2 },
+///    Coord { x: 1, y: 2 },
+///    Coord { x: 2, y: 2 },
+///    Coord { x: 2, y: 1 },
+///    Coord { x: 2, y: 0 },
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 0, y: 0 },
+/// ]));
+/// let grid = array![
+///     [0, 1, 0],
+///     [1, 0, 1],
+///     [0, 1, 0],
+/// ];
+/// let e = geospatial::marching_squares(&grid);
+/// let mls = geospatial::edges_to_multilinestring(1, &e[&1], &grid);
+/// assert_eq!(mls.0.len(), 4);
+/// assert_eq!(mls.0[0], LineString::from(vec![
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 2, y: 1 },
+///    Coord { x: 2, y: 0 },
+///    Coord { x: 1, y: 0 },
+/// ]));
+/// assert_eq!(mls.0[1], LineString::from(vec![
+///    Coord { x: 1, y: 3 },
+///    Coord { x: 1, y: 2 },
+///    Coord { x: 2, y: 2 },
+///    Coord { x: 2, y: 3 },
+///    Coord { x: 1, y: 3 },
+/// ]));
+/// assert_eq!(mls.0[2], LineString::from(vec![
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 1, y: 2 },
+///    Coord { x: 0, y: 2 },
+///    Coord { x: 0, y: 1 },
+/// ]));
+/// assert_eq!(mls.0[3], LineString::from(vec![
+///    Coord { x: 3, y: 1 },
+///    Coord { x: 2, y: 1 },
+///    Coord { x: 2, y: 2 },
+///    Coord { x: 3, y: 2 },
+///    Coord { x: 3, y: 1 },
+/// ]));
 /// ```
-pub fn edges_to_multilinestring(
-    edges: &Vec<(Coord<usize>, Coord<usize>)>,
-) -> MultiLineString<usize> {
-    let mut adj: HashMap<Coord<usize>, Vec<Coord<usize>>> = HashMap::new();
-    for (a, b) in edges {
-        adj.entry(*a).or_default().push(*b);
-        adj.entry(*b).or_default().push(*a);
+pub fn edges_to_multilinestring<T>(id: T, edges: &Vec<(Coord<usize>, Coord<usize>)>, grid: &Array2<T>) -> MultiLineString<usize>
+where
+    T: Eq + Hash + Copy + std::fmt::Debug
+{
+    // return which two points are adjancent to our grid cell when we hit a knot
+    // p is previous
+    // c is where we are at
+    fn adjcoords<T>(p: Coord<usize>, c: Coord<usize>, id: T, grid: &Array2<T>) -> [Coord<usize>; 2]
+    where
+        T: Eq + Hash + Copy,
+    {
+        let (row, col) = (c.y, c.x);
+
+        // this is kinda tricky, so be explicit
+
+        // moving right
+        if p.x == c.x-1 {
+            // moving up
+            if grid[[row-1, col-1]] == id {
+                return [p, Coord{x:col, y:row-1}];
+            }
+            // moving down
+            return [p, Coord{x:col, y:row+1}];
+
+        // moving left
+        } else if p.x == c.x+1 {
+            // moving up
+            if grid[[row-1, col]] == id {
+                return [p, Coord{x:col, y:row-1}];
+            } 
+            // moving down
+            return [p, Coord{x:col, y:row+1}];
+
+        // moving down
+        } else if p.y == c.y-1 {
+            // moving left
+            if grid[[row-1, col-1]] == id {
+                return [p, Coord{x:col-1, y:row}];
+            }
+            return [p, Coord{x:col+1, y:row}];
+
+        // moving up
+        } else {
+            // moving left
+            if grid[[row, col-1]] == id {
+                return [p, Coord{x:col-1, y:row}];
+            }
+            // moving right
+            return [p, Coord{x:col+1, y:row}];
+        }
+
     }
+<<<<<<< HEAD
     assert!(adj.values().all(|p| p.len() == 2 || p.len() == 4));
 
     return MultiLineString::new(vec![LineString::new(vec![])]);
+=======
+    // a helper that makes a single ring.  assumes we start at a point with two neighbours
+    // id and grid are used to figure out correct direction at a knot
+    fn aring<T>(adj: &HashMap<Coord<usize>, Vec<Coord<usize>>>, start: Coord<usize>, id: T, grid: &Array2<T>) -> Vec<Coord<usize>>
+    where
+        T: Eq + Hash + Copy + std::fmt::Debug
+    {
+        let mut ring: Vec<Coord<usize>> = Vec::new();
+        let mut cur = start;
+
+        // storage for knot-case neighbours
+        let mut knot_coords: [Coord<usize>; 2];
+
+        // our neighbours, if if there are four we need to do more work
+        let mut n: &[Coord<usize>] = &adj[&cur];
+        if n.len() == 4 {
+            knot_coords = adjcoords(n[0], cur, id, grid);
+            n = &knot_coords;
+        }
+
+        let mut prev: Coord<usize> = n[0];
+
+        loop {
+            //println!("id={:?}, start={:?}, prev={:?}, cur={:?}", id, start, prev, cur);
+            //let row = cur.y;
+            //let col = cur.x;
+            //println!("{:?}", grid.slice(s![ (row-2) .. (row+2), (col-2) .. (col+2)]));
+            ring.push(cur);
+            // our neighbours, if if there are four we need to do more work
+            n = &adj[&cur];
+            //println!("n = {:?}", n);
+            if n.len() == 4 {
+                knot_coords = adjcoords(prev, cur, id, grid);
+                n = &knot_coords;
+                //println!("kn = {:?}", n);
+            }
+            if prev == n[0] && n[1] != start {
+                prev = cur;
+                cur = n[1]
+            } else if prev == n[1] && n[0] != start {
+                prev = cur;
+                cur = n[0]
+            } else {
+                break;
+            }
+            //println!("picking next = {:?}", cur);
+        }
+        ring.push(start);
+
+        return ring;
+    }
+
+    // start with a copy of edges
+    let mut edges = edges.clone();
+
+    //println!("There are {} edges so far", edges.len());
+
+    let mut rings: Vec<LineString<usize>> = Vec::new();
+    while edges.len() != 0 {
+        //println!("There are {} edges so far", edges.len());
+
+        // build the adjancey
+        let mut adj: HashMap<Coord<usize>, Vec<Coord<usize>>> = HashMap::new();
+        for (a, b) in &edges {
+            adj.entry(*a).or_default().push(*b);
+            adj.entry(*b).or_default().push(*a);
+        }
+        assert!(adj.values().all(|p| p.len() == 2 || p.len() == 4));
+
+        // first point of first edge will do
+        let start = edges[0].0;
+
+        let ring = aring::<T>(&adj, start, id, &grid);
+        rings.push(LineString(ring.clone()));
+
+        let myedges: HashSet<(Coord<usize>, Coord<usize>)> = ring.windows(2).flat_map(|w| vec![(w[0], w[1]), (w[1], w[0])]).collect();
+        edges = edges.into_iter().filter(|e| !myedges.contains(e)).collect();
+    }
+
+    return MultiLineString::new(rings);
+>>>>>>> 77bc0c003201a6d4c46ed823a239a892ac2a1c7f
 }
+

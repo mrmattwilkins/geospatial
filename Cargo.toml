@@ -1,6 +1,6 @@
 [package]
 name = "geospatial"
-version = "0.1.1"
+version = "0.1.4"
 edition = "2024"
 authors = ["Matt Wilkins (https://github.com/mrmattwilkins)"]
 license = "MIT"
@@ -16,6 +16,6 @@ categories = ["science::geo"]
 opt-level = 3
 
 [dependencies]
-geo = ">=0.30.0, <0.40.0"
+geo = ">=0.20.0, <0.40.0"
 line_drawing = ">=1.0.0, < 2.0.0"
 ndarray = "0.16.1"
