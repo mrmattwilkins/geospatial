@@ -563,6 +563,10 @@ where
 /// let line = LineString::from(vec![(-1.0, 0.5), (2.0, 0.5)]);
 /// let i = geospatial::first_line_poly_intersection(&line, &poly);
 /// assert_eq!(i, Some(Coord {x: 0.0, y:0.5}));
+///
+/// let line = LineString::from(vec![(-1.0, 1.5), (2.0, 1.5)]);
+/// let i = geospatial::first_line_poly_intersection(&line, &poly);
+/// assert_eq!(i, None);
 /// ```
 pub fn first_line_poly_intersection(
     line: &LineString<f64>,
