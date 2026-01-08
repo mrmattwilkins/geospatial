@@ -525,12 +525,11 @@ where
     return MultiLineString::new(rings);
 }
 
-/// Returns the first intersection point encountered when walking along line,
-/// where first means earliest along the LineStrings segment order.
-/// For overlapping (collinear) intersections, the point closest to the segment
-/// start is returned.
+/// Returns the first intersection point between line and polygon, encountered when walking along
+/// line, where first means earliest along the LineStrings segment order.  For overlapping
+/// (collinear) intersections, the point closest to the line segment start is returned.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use geo::{Coord, LineString, Polygon};
@@ -568,38 +567,103 @@ where
 /// let i = geospatial::first_line_poly_intersection(&line, &poly);
 /// assert_eq!(i, None);
 /// ```
-pub fn first_line_poly_intersection(
-    line: &LineString<f64>,
-    poly: &Polygon<f64>,
-) -> Option<Coord<f64>> {
+pub fn first_line_poly_intersection(linestr: &LineString<f64>, poly: &Polygon<f64>) -> Option<Coord<f64>>
+{
     let ring = poly.exterior();
 
-    for seg in line.lines() {
-        // get intersections, there could be more than one
-        let ints: Vec<Coord<f64>> = ring
-            .lines()
-            .flat_map(|poly_seg| match line_intersection(seg, poly_seg) {
-                Some(LineIntersection::SinglePoint { intersection, .. }) => {
-                    vec![intersection]
-                }
-                Some(LineIntersection::Collinear { intersection }) => {
-                    vec![intersection.start, intersection.end]
-                }
-                None => Vec::new(),
-            })
-            .collect();
-        // possibly multiple intersections, return the one closest to seg.start
-        let closest: Option<Coord<f64>> = ints
-            .iter()
-            .min_by(|a, b| {
-                let da = (a.x - seg.start.x).powi(2) + (a.y - seg.start.y).powi(2);
-                let db = (b.x - seg.start.x).powi(2) + (b.y - seg.start.y).powi(2);
-                da.partial_cmp(&db).unwrap()
-            })
-            .copied();
+    for line in linestr.lines() {
+        // get intersections, there could be more than one crossing, get them all
+        let ints: Vec<Coord<f64>> = ring.lines().flat_map(|seg|
+            match line_intersection(line, seg) {
+                Some(LineIntersection::SinglePoint { intersection, .. }) => vec![intersection],
+                Some(LineIntersection::Collinear { intersection }) => vec![intersection.start, intersection.end],
+                None => Vec::new()
+            }
+        ).collect();
+
+        // return the closest crossing to line.start (if there is one)
+        let closest: Option<Coord<f64>> = ints.iter().min_by(|a, b| {
+            let da = (a.x - line.start.x).powi(2) + (a.y - line.start.y).powi(2);
+            let db = (b.x - line.start.x).powi(2) + (b.y - line.start.y).powi(2);
+            da.partial_cmp(&db).unwrap()
+        }).copied();
         if let Some(p) = closest {
             return Some(p);
         }
     }
     return None;
+}
+
+/// Returns the first part of a line before it hits polygon ring.  This is the linestring from
+/// start to that returned by first_line_poly_intersection.
+///
+/// # Examples
+///
+/// ```
+/// use geo::{Coord, LineString, Polygon};
+/// let line = LineString::from(vec![(0.5, 3.0), (0.5, 0.5)]);
+/// let poly = Polygon::new(LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]), vec![]);
+/// let l = geospatial::line_before_poly(&line, &poly);
+/// assert_eq!(l, LineString::from(vec![(0.5, 3.0), (0.5, 1.0)]));
+///
+/// let line = LineString::from(vec![(0.0, 8.0), (1.0, 3.0), (1.0, -2.0)]);
+/// let l = geospatial::line_before_poly(&line, &poly);
+/// assert_eq!(l, LineString::from(vec![(0.0, 8.0), (1.0, 3.0), (1.0, 1.0)]));
+///
+/// let line = LineString::from(vec![(0.0, 2.0), (0.5, 1.0), (0.5, -3.0)]);
+/// let l = geospatial::line_before_poly(&line, &poly);
+/// assert_eq!(l, LineString::from(vec![(0.0, 2.0), (0.5, 1.0)]));
+///
+/// let line = LineString::from(vec![(0.5, 1.0), (0.5, -3.0)]);
+/// let l = geospatial::line_before_poly(&line, &poly);
+/// assert_eq!(l, LineString::new(Vec::<Coord<f64>>::new()));
+///
+/// let line = LineString::from(vec![(0.5, 2.0), (1.5, 3.0)]);
+/// let l = geospatial::line_before_poly(&line, &poly);
+/// assert_eq!(l, LineString::from(vec![(0.5, 2.0), (1.5, 3.0)]));
+///
+/// let line = LineString::from(Vec::<Coord>::new());
+/// let l = geospatial::line_before_poly(&line, &poly);
+/// assert_eq!(l, LineString::from(Vec::<Coord<f64>>::new()));
+/// ```
+pub fn line_before_poly(linestr: &LineString<f64>, poly: &Polygon<f64>) -> LineString<f64>
+{
+    let ring = poly.exterior();
+    let mut pts: Vec<Coord<f64>> = Vec::new();
+
+    if let Some(first) = linestr.0.first() {
+        pts.push(*first);
+    }
+
+    for line in linestr.lines() {
+
+        // get intersections, there could be more than one crossing, get them all
+        let ints: Vec<Coord<f64>> = ring.lines().flat_map(|seg|
+            match line_intersection(line, seg) {
+                Some(LineIntersection::SinglePoint { intersection, .. }) => vec![intersection],
+                Some(LineIntersection::Collinear { intersection }) => vec![intersection.start, intersection.end],
+                None => Vec::new(),
+            }
+        ).collect();
+
+        // possibly multiple intersections, return the one closest to line.start
+        let closest: Option<Coord<f64>> = ints.iter().min_by(|a, b| {
+                let da = (a.x - line.start.x).powi(2) + (a.y - line.start.y).powi(2);
+                let db = (b.x - line.start.x).powi(2) + (b.y - line.start.y).powi(2);
+                da.partial_cmp(&db).unwrap()
+        }).copied();
+
+        if let Some(p) = closest {
+            pts.push(p);
+            break;
+        } else {
+            pts.push(line.end);
+        }
+    }
+    // handle case the very first point was on the poly, so two duplicate points
+    if pts.len() == 2 && pts[0] == pts[1] {
+        return LineString::new(Vec::<Coord>::new());
+    }
+
+    return LineString::from(pts);
 }
