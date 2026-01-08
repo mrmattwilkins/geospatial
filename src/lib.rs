@@ -525,19 +525,44 @@ where
     return MultiLineString::new(rings);
 }
 
-/// Find first point that a linestring intersects with a polygon exterior
+/// Returns the first intersection point encountered when walking along line,
+/// where first means earliest along the LineStrings segment order.
+/// For overlapping (collinear) intersections, the point closest to the segment
+/// start is returned.
 ///
 /// # Example
 ///
 /// ```
 /// use geo::{Coord, LineString, Polygon};
 /// let line = LineString::from(vec![(0.5, 3.0), (0.5, 0.5)]);
-/// let poly = Polygon::new(
-///     LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]),
-///     vec![],
-/// );
+/// let poly = Polygon::new(LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]), vec![]);
 /// let i = geospatial::first_line_poly_intersection(&line, &poly);
-/// assert_eq!(i, Some(Coord {x: 0.5, y:1.0}))
+/// assert_eq!(i, Some(Coord {x: 0.5, y:1.0}));
+///
+/// let line = LineString::from(vec![(1.0, 3.0), (1.0, -0.5)]);
+/// let i = geospatial::first_line_poly_intersection(&line, &poly);
+/// assert_eq!(i, Some(Coord {x: 1.0, y:1.0}));
+///
+/// let line = LineString::from(vec![(0.0, 2.0), (0.5, 1.0), (0.5, -2.0)]);
+/// let i = geospatial::first_line_poly_intersection(&line, &poly);
+/// assert_eq!(i, Some(Coord {x: 0.5, y:1.0}));
+///
+/// let line = LineString::from(vec![(0.0, -2.0), (0.0, 0.0), (1.0, 2.0)]);
+/// let i = geospatial::first_line_poly_intersection(&line, &poly);
+/// assert_eq!(i, Some(Coord {x: 0.0, y:0.0}));
+///
+/// let line = LineString::from(vec![(0.25, 0.0), (0.75, 0.0), (1.0, 2.0)]);
+/// let i = geospatial::first_line_poly_intersection(&line, &poly);
+/// assert_eq!(i, Some(Coord {x: 0.25, y:0.0}));
+///
+/// let line = LineString::from(vec![(0.75, 3.0), (0.75, -1.0)]);
+/// let poly = Polygon::new(LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (0.5, 0.5), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]), vec![]);
+/// let i = geospatial::first_line_poly_intersection(&line, &poly);
+/// assert_eq!(i, Some(Coord {x: 0.75, y:1.0}));
+///
+/// let line = LineString::from(vec![(-1.0, 0.5), (2.0, 0.5)]);
+/// let i = geospatial::first_line_poly_intersection(&line, &poly);
+/// assert_eq!(i, Some(Coord {x: 0.0, y:0.5}));
 /// ```
 pub fn first_line_poly_intersection(
     line: &LineString<f64>,
@@ -549,20 +574,27 @@ pub fn first_line_poly_intersection(
         // get intersections, there could be more than one
         let ints: Vec<Coord<f64>> = ring
             .lines()
-            .filter_map(|poly_seg| {
-                if let Some(intersection) = line_intersection(seg, poly_seg) {
-                    let pt = match intersection {
-                        LineIntersection::SinglePoint { intersection, .. } => intersection,
-                        LineIntersection::Collinear { .. } => seg.start,
-                    };
-                    Some(pt)
-                } else {
-                    None
+            .flat_map(|poly_seg| match line_intersection(seg, poly_seg) {
+                Some(LineIntersection::SinglePoint { intersection, .. }) => {
+                    vec![intersection]
                 }
+                Some(LineIntersection::Collinear { intersection }) => {
+                    vec![intersection.start, intersection.end]
+                }
+                None => Vec::new(),
             })
             .collect();
-        if !ints.is_empty() {
-            return Some(ints[0]);
+        // possibly multiple intersections, return the one closest to seg.start
+        let closest: Option<Coord<f64>> = ints
+            .iter()
+            .min_by(|a, b| {
+                let da = (a.x - seg.start.x).powi(2) + (a.y - seg.start.y).powi(2);
+                let db = (b.x - seg.start.x).powi(2) + (b.y - seg.start.y).powi(2);
+                da.partial_cmp(&db).unwrap()
+            })
+            .copied();
+        if let Some(p) = closest {
+            return Some(p);
         }
     }
     return None;
