@@ -4,8 +4,8 @@
 //! find in any other rust crate.
 //!
 
+use geo::line_intersection::{LineIntersection, line_intersection};
 use geo::{Coord, CoordNum, LineString, MultiLineString, Polygon};
-use geo::line_intersection::{line_intersection, LineIntersection};
 use line_drawing::{SignedNum, Supercover};
 use ndarray::Array2;
 use std::collections::{HashMap, HashSet};
@@ -531,29 +531,39 @@ where
 ///
 /// ```
 /// use geo::{Coord, LineString, Polygon};
-/// let line = LineString::from(vec![(0.0, 0.0), (3.0, 3.0)]);
+/// let line = LineString::from(vec![(0.5, 3.0), (0.5, 0.5)]);
 /// let poly = Polygon::new(
-///     LineString::from(vec![(1.5, 1.5), (2.5, 1.5), (2.5, 2.5), (1.5, 2.5), (1.5, 1.5)]),
+///     LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]),
 ///     vec![],
 /// );
-/// let int = first_line_poly_intersection(&line, &poly);
-/// assert_eq!(int, Some(Coord {x: 1, y:2}))
+/// let i = geospatial::first_line_poly_intersection(&line, &poly);
+/// assert_eq!(i, Some(Coord {x: 0.5, y:1.0}))
 /// ```
-pub fn first_line_poly_intersection(line: &LineString<f64>, poly: &Polygon<f64>) -> Option<Coord<f64>> {
-    let ring = &poly.exterior();
+pub fn first_line_poly_intersection(
+    line: &LineString<f64>,
+    poly: &Polygon<f64>,
+) -> Option<Coord<f64>> {
+    let ring = poly.exterior();
 
     for seg in line.lines() {
         // get intersections, there could be more than one
-        let ints = ring.lines().iter().filter_map(|seg|
-            if let Some(intersection) = line_intersection(seg, poly_seg) {
-                /*return Some(match intersection {
-                    LineIntersection::SinglePoint(p) => p,
-                    LineIntersection::Collinear { .. } => seg.start,
-                });
-                */
-            }
+        let ints: Vec<Coord<f64>> = ring
+            .lines()
+            .filter_map(|poly_seg| {
+                if let Some(intersection) = line_intersection(seg, poly_seg) {
+                    let pt = match intersection {
+                        LineIntersection::SinglePoint { intersection, .. } => intersection,
+                        LineIntersection::Collinear { .. } => seg.start,
+                    };
+                    Some(pt)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !ints.is_empty() {
+            return Some(ints[0]);
         }
-        println!("Ont {:?}", ints);
     }
-    None
+    return None;
 }
