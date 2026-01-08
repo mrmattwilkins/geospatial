@@ -4,7 +4,8 @@
 //! find in any other rust crate.
 //!
 
-use geo::{Coord, CoordNum, LineString, MultiLineString};
+use geo::{Coord, CoordNum, LineString, MultiLineString, Polygon};
+use geo::line_intersection::{line_intersection, LineIntersection};
 use line_drawing::{SignedNum, Supercover};
 use ndarray::Array2;
 use std::collections::{HashMap, HashSet};
@@ -522,4 +523,37 @@ where
     }
 
     return MultiLineString::new(rings);
+}
+
+/// Find first point that a linestring intersects with a polygon exterior
+///
+/// # Example
+///
+/// ```
+/// use geo::{Coord, LineString, Polygon};
+/// let line = LineString::from(vec![(0.0, 0.0), (3.0, 3.0)]);
+/// let poly = Polygon::new(
+///     LineString::from(vec![(1.5, 1.5), (2.5, 1.5), (2.5, 2.5), (1.5, 2.5), (1.5, 1.5)]),
+///     vec![],
+/// );
+/// let int = first_line_poly_intersection(&line, &poly);
+/// assert_eq!(int, Some(Coord {x: 1, y:2}))
+/// ```
+pub fn first_line_poly_intersection(line: &LineString<f64>, poly: &Polygon<f64>) -> Option<Coord<f64>> {
+    let ring = &poly.exterior();
+
+    for seg in line.lines() {
+        // get intersections, there could be more than one
+        let ints = ring.lines().iter().filter_map(|seg|
+            if let Some(intersection) = line_intersection(seg, poly_seg) {
+                /*return Some(match intersection {
+                    LineIntersection::SinglePoint(p) => p,
+                    LineIntersection::Collinear { .. } => seg.start,
+                });
+                */
+            }
+        }
+        println!("Ont {:?}", ints);
+    }
+    None
 }
