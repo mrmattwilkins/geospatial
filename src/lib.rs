@@ -84,11 +84,12 @@ where
 
 /// Marching squares
 ///
-/// Extracts boundary edges from a 2d array.  A horizontal or vertical edge exists between
+/// Extracts oriented boundary edges from a 2d array.  A horizontal or vertical edge exists between
 /// two cells if they have
 /// different values. It is intended for
 /// grids containing region or watershed labels, where each distinct value represents
-/// a separate area and you want to get the boundary edges.
+/// a separate area and you want to get the boundary edges.  The edges are oriented so the inside
+/// is to the left
 ///
 /// # Parameters
 ///
@@ -96,8 +97,8 @@ where
 ///
 /// # Returns
 ///
-/// A HashMap mapping each unique grid value to a list of edges `(Coord<usize>, Coord<usize>)`
-/// associated with that region.
+/// A HashMap mapping each unique grid value to a list of oriented edges `(Coord<usize>, Coord<usize>)`
+/// associated with that region.  The grid value is to the left of each edge.
 ///
 /// # Notes
 ///
@@ -118,10 +119,10 @@ where
 /// ];
 /// assert_eq!(geospatial::marching_squares(&grid)[&1],
 ///     vec![
-///         (Coord{ x: 0, y: 0}, Coord{ x: 1, y: 0}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 0, y: 0}),
 ///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
 ///         (Coord{ x: 0, y: 0}, Coord{ x: 0, y: 1}),
-///         (Coord{ x: 1, y: 0}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 1, y: 1}, Coord{ x: 1, y: 0}),
 ///     ]
 /// );
 ///
@@ -130,12 +131,12 @@ where
 /// ];
 /// assert_eq!(geospatial::marching_squares(&grid)[&1],
 ///     vec![
-///         (Coord{ x: 0, y: 0}, Coord{ x: 1, y: 0}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 0, y: 0}),
 ///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
-///         (Coord{ x: 1, y: 0}, Coord{ x: 2, y: 0}),
+///         (Coord{ x: 2, y: 0}, Coord{ x: 1, y: 0}),
 ///         (Coord{ x: 1, y: 1}, Coord{ x: 2, y: 1}),
 ///         (Coord{ x: 0, y: 0}, Coord{ x: 0, y: 1}),
-///         (Coord{ x: 2, y: 0}, Coord{ x: 2, y: 1}),
+///         (Coord{ x: 2, y: 1}, Coord{ x: 2, y: 0}),
 ///     ]
 /// );
 ///
@@ -146,12 +147,12 @@ where
 /// let e = geospatial::marching_squares(&grid);
 /// assert_eq!(e[&1],
 ///     vec![
-///         (Coord{ x: 0, y: 0}, Coord{ x: 1, y: 0}),
-///         (Coord{ x: 1, y: 0}, Coord{ x: 2, y: 0}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 0, y: 0}),
+///         (Coord{ x: 2, y: 0}, Coord{ x: 1, y: 0}),
 ///         (Coord{ x: 1, y: 2}, Coord{ x: 2, y: 2}),
 ///         (Coord{ x: 0, y: 0}, Coord{ x: 0, y: 1}),
-///         (Coord{ x: 2, y: 0}, Coord{ x: 2, y: 1}),
-///         (Coord{ x: 2, y: 1}, Coord{ x: 2, y: 2}),
+///         (Coord{ x: 2, y: 1}, Coord{ x: 2, y: 0}),
+///         (Coord{ x: 2, y: 2}, Coord{ x: 2, y: 1}),
 ///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
 ///         (Coord{ x: 1, y: 1}, Coord{ x: 1, y: 2}),
 ///     ]
@@ -160,8 +161,8 @@ where
 ///     vec![
 ///         (Coord{ x: 0, y: 2}, Coord{ x: 1, y: 2}),
 ///         (Coord{ x: 0, y: 1}, Coord{ x: 0, y: 2}),
-///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
-///         (Coord{ x: 1, y: 1}, Coord{ x: 1, y: 2}),
+///         (Coord{ x: 1, y: 1}, Coord{ x: 0, y: 1}),
+///         (Coord{ x: 1, y: 2}, Coord{ x: 1, y: 1}),
 ///     ]
 /// );
 /// let grid = array![
@@ -172,17 +173,17 @@ where
 /// let e = geospatial::marching_squares(&grid);
 /// assert_eq!(e[&4],
 ///     vec![
-///         (Coord{ x: 0, y: 0}, Coord{ x: 1, y: 0}),
+///         (Coord{ x: 1, y: 0}, Coord{ x: 0, y: 0}),
 ///         (Coord{ x: 0, y: 0}, Coord{ x: 0, y: 1}),
-///         (Coord{ x: 1, y: 0}, Coord{ x: 1, y: 1}),
+///         (Coord{ x: 1, y: 1}, Coord{ x: 1, y: 0}),
 ///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
 ///     ]
 /// );
 /// assert_eq!(e[&3],
 ///     vec![
-///         (Coord{ x: 4, y: 1}, Coord{ x: 4, y: 2}),
+///         (Coord{ x: 4, y: 2}, Coord{ x: 4, y: 1}),
 ///         (Coord{ x: 3, y: 1}, Coord{ x: 3, y: 2}),
-///         (Coord{ x: 3, y: 1}, Coord{ x: 4, y: 1}),
+///         (Coord{ x: 4, y: 1}, Coord{ x: 3, y: 1}),
 ///         (Coord{ x: 3, y: 2}, Coord{ x: 4, y: 2}),
 ///     ]
 /// );
@@ -190,34 +191,34 @@ where
 ///     vec![
 ///         (Coord{ x: 1, y: 3}, Coord{ x: 2, y: 3}),
 ///         (Coord{ x: 2, y: 3}, Coord{ x: 3, y: 3}),
-///         (Coord{ x: 3, y: 0}, Coord{ x: 4, y: 0}),
+///         (Coord{ x: 4, y: 0}, Coord{ x: 3, y: 0}),
 ///         (Coord{ x: 3, y: 3}, Coord{ x: 4, y: 3}),
-///         (Coord{ x: 4, y: 0}, Coord{ x: 4, y: 1}),
-///         (Coord{ x: 4, y: 2}, Coord{ x: 4, y: 3}),
+///         (Coord{ x: 4, y: 1}, Coord{ x: 4, y: 0}),
+///         (Coord{ x: 4, y: 3}, Coord{ x: 4, y: 2}),
 ///         (Coord{ x: 3, y: 0}, Coord{ x: 3, y: 1}),
-///         (Coord{ x: 2, y: 1}, Coord{ x: 3, y: 1}),
+///         (Coord{ x: 3, y: 1}, Coord{ x: 2, y: 1}),
 ///         (Coord{ x: 2, y: 1}, Coord{ x: 2, y: 2}),
-///         (Coord{ x: 1, y: 2}, Coord{ x: 2, y: 2}),
-///         (Coord{ x: 3, y: 1}, Coord{ x: 3, y: 2}),
+///         (Coord{ x: 2, y: 2}, Coord{ x: 1, y: 2}),
+///         (Coord{ x: 3, y: 2}, Coord{ x: 3, y: 1}),
 ///         (Coord{ x: 3, y: 1}, Coord{ x: 4, y: 1}),
-///         (Coord{ x: 3, y: 2}, Coord{ x: 4, y: 2}),
+///         (Coord{ x: 4, y: 2}, Coord{ x: 3, y: 2}),
 ///         (Coord{ x: 1, y: 2}, Coord{ x: 1, y: 3}),
 ///     ]
 /// );
 /// assert_eq!(e[&1],
 ///     vec![
 ///         (Coord{ x: 0, y: 3}, Coord{ x: 1, y: 3}),
-///         (Coord{ x: 1, y: 0}, Coord{ x: 2, y: 0}),
-///         (Coord{ x: 2, y: 0}, Coord{ x: 3, y: 0}),
+///         (Coord{ x: 2, y: 0}, Coord{ x: 1, y: 0}),
+///         (Coord{ x: 3, y: 0}, Coord{ x: 2, y: 0}),
 ///         (Coord{ x: 0, y: 1}, Coord{ x: 0, y: 2}),
 ///         (Coord{ x: 0, y: 2}, Coord{ x: 0, y: 3}),
 ///         (Coord{ x: 1, y: 0}, Coord{ x: 1, y: 1}),
-///         (Coord{ x: 0, y: 1}, Coord{ x: 1, y: 1}),
-///         (Coord{ x: 3, y: 0}, Coord{ x: 3, y: 1}),
+///         (Coord{ x: 1, y: 1}, Coord{ x: 0, y: 1}),
+///         (Coord{ x: 3, y: 1}, Coord{ x: 3, y: 0}),
 ///         (Coord{ x: 2, y: 1}, Coord{ x: 3, y: 1}),
-///         (Coord{ x: 2, y: 1}, Coord{ x: 2, y: 2}),
+///         (Coord{ x: 2, y: 2}, Coord{ x: 2, y: 1}),
 ///         (Coord{ x: 1, y: 2}, Coord{ x: 2, y: 2}),
-///         (Coord{ x: 1, y: 2}, Coord{ x: 1, y: 3}),
+///         (Coord{ x: 1, y: 3}, Coord{ x: 1, y: 2}),
 ///     ]
 /// );
 ///
@@ -233,7 +234,7 @@ where
     for c in 0..ncols {
         let r = 0;
         let me = grid[[r, c]];
-        let edge = (Coord { x: c, y: r }, Coord { x: c + 1, y: r });
+        let edge = (Coord { x: c + 1, y: r }, Coord { x: c, y: r });
         ret.entry(me).or_default().push(edge);
         let r = nrows - 1;
         let me = grid[[r, c]];
@@ -247,7 +248,7 @@ where
         ret.entry(me).or_default().push(edge);
         let c = ncols - 1;
         let me = grid[[r, c]];
-        let edge = (Coord { x: c + 1, y: r }, Coord { x: c + 1, y: r + 1 });
+        let edge = (Coord { x: c + 1, y: r + 1 }, Coord { x: c + 1, y: r });
         ret.entry(me).or_default().push(edge);
     }
 
@@ -258,13 +259,15 @@ where
             let right = grid[[r, c + 1]];
             let down = grid[[r + 1, c]];
             if me != right {
-                let edge = (Coord { x: c + 1, y: r }, Coord { x: c + 1, y: r + 1 });
+                let edge = (Coord { x: c + 1, y: r + 1 }, Coord { x: c + 1, y: r });
                 ret.entry(me).or_default().push(edge);
+                let edge = (Coord { x: c + 1, y: r }, Coord { x: c + 1, y: r + 1 });
                 ret.entry(right).or_default().push(edge);
             }
             if me != down {
                 let edge = (Coord { x: c, y: r + 1 }, Coord { x: c + 1, y: r + 1 });
                 ret.entry(me).or_default().push(edge);
+                let edge = (Coord { x: c + 1, y: r + 1 }, Coord { x: c, y: r + 1 });
                 ret.entry(down).or_default().push(edge);
             }
         }
@@ -278,6 +281,7 @@ where
         if me != down {
             let edge = (Coord { x: c, y: r + 1 }, Coord { x: c + 1, y: r + 1 });
             ret.entry(me).or_default().push(edge);
+            let edge = (Coord { x: c + 1, y: r + 1 }, Coord { x: c, y: r + 1 });
             ret.entry(down).or_default().push(edge);
         }
     }
@@ -288,13 +292,247 @@ where
         let me = grid[[r, c]];
         let right = grid[[r, c + 1]];
         if me != right {
-            let edge = (Coord { x: c + 1, y: r }, Coord { x: c + 1, y: r + 1 });
+            let edge = (Coord { x: c + 1, y: r + 1 }, Coord { x: c + 1, y: r });
             ret.entry(me).or_default().push(edge);
+            let edge = (Coord { x: c + 1, y: r }, Coord { x: c + 1, y: r + 1 });
             ret.entry(right).or_default().push(edge);
         }
     }
 
     ret
+}
+
+/// Converts a collection of unordered grid edges that form a bunch of rings into a
+/// `LineString` or None if we can't.  The LineString can have repeated points, ie it can touch
+/// itself, however it will not cross itself.
+///
+/// This function takes a list of edges, where each edge is represented by a pair
+/// of grid coordinates, and converts them into a `LineString`.
+/// The edges should completely encircle regions.
+///
+/// # Parameters
+///
+/// - `edges`: A vector of edge segments, where each edge is represented as a pair
+///   of `Coord<usize>` values defining the start and end points.
+///
+/// # Returns
+///
+/// A Option<LineString<usize>> where input edges have been ordered to make a
+/// LineStrings.
+///
+/// # Examples
+///
+/// ```
+/// use geo::{Coord, LineString};
+/// use ndarray::array;
+///
+/// let grid = array![[0]];
+/// let e = geospatial::marching_squares(&grid);
+/// let ls = geospatial::edges_to_linestring(0, &e[&0], &grid);
+/// assert_eq!(ls, LineString::from(vec![
+///    Coord { x: 0, y: 0 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 0, y: 0 },
+/// ]));
+/// let grid = array![
+///     [0, 1],
+///     [1, 1],
+/// ];
+/// let e = geospatial::marching_squares(&grid);
+/// let ls = geospatial::edges_to_linestring(0, &e[&0], &grid);
+/// assert_eq!(ls, LineString::from(vec![
+///    Coord { x: 0, y: 0 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 0, y: 0 },
+/// ]));
+/// let grid = array![
+///     [1, 1],
+///     [1, 1],
+/// ];
+/// let e = geospatial::marching_squares(&grid);
+/// let ls = geospatial::edges_to_linestring(1, &e[&1], &grid);
+/// assert_eq!(ls, LineString::from(vec![
+///    Coord { x: 0, y: 0 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 0, y: 2 },
+///    Coord { x: 1, y: 2 },
+///    Coord { x: 2, y: 2 },
+///    Coord { x: 2, y: 1 },
+///    Coord { x: 2, y: 0 },
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 0, y: 0 },
+/// ]));
+/// let grid = array![
+///     [0, 1, 0],
+///     [1, 1, 1],
+///     [0, 1, 0],
+/// ];
+/// let e = geospatial::marching_squares(&grid);
+/// let ls = geospatial::edges_to_linestring(1, &e[&1], &grid);
+/// assert_eq!(ls, LineString::from(vec![
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 0, y: 2 },
+///    Coord { x: 1, y: 2 },
+///    Coord { x: 1, y: 3 },
+///    Coord { x: 2, y: 3 },
+///    Coord { x: 2, y: 2 },
+///    Coord { x: 3, y: 2 },
+///    Coord { x: 3, y: 1 },
+///    Coord { x: 2, y: 1 },
+///    Coord { x: 2, y: 0 },
+///    Coord { x: 1, y: 0 },
+/// ]));
+/// ```
+pub fn edges_to_linestring<T>(
+    id: T,
+    edges: &Vec<(Coord<usize>, Coord<usize>)>,
+    grid: &Array2<T>,
+) -> LineString<usize>
+where
+    T: Eq + Hash + Copy,
+{
+
+    // join two linestrings without duplicating join point
+    fn join(a: &LineString<usize>, b: &LineString<usize>) -> LineString<usize> {
+        let mut coords = a.0.clone();
+        coords.extend_from_slice(&b.0[1..]);
+        LineString::new(coords)
+    }
+
+    // start with a bucket of short linestrings
+    let mut lines: Vec<LineString<usize>> = edges.iter().map(|e| LineString::new(vec![e.0, e.1])).collect();
+
+    loop {
+        // maintain mappings of ends of lines
+        let mut start2lids: HashMap<Coord<usize>, Vec<usize>> = HashMap::new();
+        let mut end2lids: HashMap<Coord<usize>, Vec<usize>> = HashMap::new();
+        for (i, ls) in lines.iter().enumerate() {
+            start2lids.entry(*ls.0.first().unwrap()).or_default().push(i);
+            end2lids.entry(*ls.0.last().unwrap()).or_default().push(i);
+        }
+
+        let mut merged = false;
+
+        for (pt, eids) in &end2lids {
+            // can't do anything if at knot ie. multiple lines end at pt
+            if eids.len() != 1 { continue; }
+
+            // ids of those that start at pt, if not 1 then a knot
+            let sids = match start2lids.get(&pt) {
+                Some(v) if v.len() == 1 => v,
+                _ => continue,
+            };
+
+            let eid = eids[0];
+            let sid = sids[0];
+
+            // pathological
+            if eid == sid { continue; }
+
+            let new = join(&lines[eid], &lines[sid]);
+
+            // remove higher index first
+            let (a, b) = if eid > sid { (eid, sid) } else { (sid, eid) };
+            lines.swap_remove(a);
+            lines.swap_remove(b);
+            lines.push(new);
+
+            merged = true;
+            break; // maps are invalid now, restart
+        }
+
+        if !merged {
+            break;
+        }
+    }
+
+#[derive(Debug)]
+struct Line {
+    coords: LineString<usize>,
+    start: Coord<usize>,
+    end: Coord<usize>,
+}
+struct Knot {
+    pt: Coord<usize>,
+    outgoing: Vec<usize>, // line indices
+}
+
+let mut lines: Vec<Line> = lines.into_iter().map(|ls| {
+    let start = *ls.0.first().unwrap();
+    let end = *ls.0.last().unwrap();
+    Line {coords: ls, start: start, end: end}
+}).collect();
+
+fn construct_knots(lines: &Vec<Line>) -> HashMap<Coord<usize>, Knot> {
+    let mut start_map: HashMap<Coord<usize>, Vec<usize>> = HashMap::new();
+    for (i, line) in lines.iter().enumerate() {
+        start_map.entry(line.start).or_default().push(i);
+    }
+
+    let mut knots: HashMap<Coord<usize>, Knot> = HashMap::new();
+    for (&pt, outgoing) in &start_map {
+        knots.insert(pt, Knot { pt, outgoing: outgoing.clone() });
+    }
+    knots
+}
+let knots = construct_knots(&lines);
+
+/// used is the indices of lines we have used in building current path
+fn connect_lines(lines: &mut Vec<Line>, knots: &HashMap<Coord<usize>, Knot>, used: &mut HashSet<usize>) -> bool
+{
+    // success, we have used all lines
+    if used.len() == lines.len() {
+        return true;
+    }
+    
+     // pick next ambiguous knot with at least one unused outgoing line
+    let next_knot = knots.values().find(|k| k.outgoing.iter().any(|&i| !used.contains(&i)));
+    let next_knot = match next_knot {
+        Some(k) => k,
+        None => return false, // no usable lines left but not all lines used -> dead-end
+    };
+
+    // try each outgoing line
+    for &line_idx in &next_knot.outgoing {
+        if used.contains(&line_idx) {
+            continue; // already used
+        }
+
+        // mark line as used
+        used.insert(line_idx);
+
+        // recurse from the other end of this line
+        let line = &lines[line_idx];
+        let next_pt = if line.start == next_knot.pt { line.end } else { line.start };
+
+        if connect_lines(lines, knots, used) {
+            return true; // success down this path
+        }
+
+        // backtrack
+        used.remove(&line_idx);
+    }
+
+
+    // pick next ambiguous knot
+    // try each outgoing line
+    // mark as used, recurse
+    // backtrack if needed
+    return false;
+}
+
+
+    // knots are the starts and ends of the lines
+    
+    println!("{:?}", lines);
+    
+    return LineString::new(vec![Coord {x:0, y:0}, Coord {x:1, y:1}]);
 }
 
 /// Converts a collection of unordered grid edges that form a bunch of rings nto a
@@ -326,11 +564,11 @@ where
 /// let mls = geospatial::edges_to_multilinestring(0, &e[&0], &grid);
 /// assert_eq!(mls.0.len(), 1);
 /// assert_eq!(mls.0[0], LineString::from(vec![
-///    Coord { x: 0, y: 0 },
-///    Coord { x: 0, y: 1 },
-///    Coord { x: 1, y: 1 },
 ///    Coord { x: 1, y: 0 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 0, y: 1 },
 ///    Coord { x: 0, y: 0 },
+///    Coord { x: 1, y: 0 },
 /// ]));
 /// let grid = array![
 ///     [0, 1],
@@ -340,11 +578,11 @@ where
 /// let mls = geospatial::edges_to_multilinestring(0, &e[&0], &grid);
 /// assert_eq!(mls.0.len(), 1);
 /// assert_eq!(mls.0[0], LineString::from(vec![
-///    Coord { x: 0, y: 0 },
-///    Coord { x: 0, y: 1 },
-///    Coord { x: 1, y: 1 },
 ///    Coord { x: 1, y: 0 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 0, y: 1 },
 ///    Coord { x: 0, y: 0 },
+///    Coord { x: 1, y: 0 },
 /// ]));
 /// let grid = array![
 ///     [1, 1],
@@ -354,15 +592,15 @@ where
 /// let mls = geospatial::edges_to_multilinestring(1, &e[&1], &grid);
 /// assert_eq!(mls.0.len(), 1);
 /// assert_eq!(mls.0[0], LineString::from(vec![
-///    Coord { x: 0, y: 0 },
-///    Coord { x: 0, y: 1 },
-///    Coord { x: 0, y: 2 },
-///    Coord { x: 1, y: 2 },
-///    Coord { x: 2, y: 2 },
-///    Coord { x: 2, y: 1 },
-///    Coord { x: 2, y: 0 },
 ///    Coord { x: 1, y: 0 },
+///    Coord { x: 2, y: 0 },
+///    Coord { x: 2, y: 1 },
+///    Coord { x: 2, y: 2 },
+///    Coord { x: 1, y: 2 },
+///    Coord { x: 0, y: 2 },
+///    Coord { x: 0, y: 1 },
 ///    Coord { x: 0, y: 0 },
+///    Coord { x: 1, y: 0 },
 /// ]));
 /// let grid = array![
 ///     [0, 1, 0],
@@ -373,11 +611,11 @@ where
 /// let mls = geospatial::edges_to_multilinestring(1, &e[&1], &grid);
 /// assert_eq!(mls.0.len(), 4);
 /// assert_eq!(mls.0[0], LineString::from(vec![
-///    Coord { x: 1, y: 0 },
-///    Coord { x: 1, y: 1 },
-///    Coord { x: 2, y: 1 },
 ///    Coord { x: 2, y: 0 },
+///    Coord { x: 2, y: 1 },
+///    Coord { x: 1, y: 1 },
 ///    Coord { x: 1, y: 0 },
+///    Coord { x: 2, y: 0 },
 /// ]));
 /// assert_eq!(mls.0[1], LineString::from(vec![
 ///    Coord { x: 1, y: 3 },
@@ -394,11 +632,11 @@ where
 ///    Coord { x: 0, y: 1 },
 /// ]));
 /// assert_eq!(mls.0[3], LineString::from(vec![
-///    Coord { x: 3, y: 1 },
-///    Coord { x: 2, y: 1 },
-///    Coord { x: 2, y: 2 },
 ///    Coord { x: 3, y: 2 },
+///    Coord { x: 2, y: 2 },
+///    Coord { x: 2, y: 1 },
 ///    Coord { x: 3, y: 1 },
+///    Coord { x: 3, y: 2 },
 /// ]));
 /// ```
 pub fn edges_to_multilinestring<T>(
@@ -409,7 +647,7 @@ pub fn edges_to_multilinestring<T>(
 where
     T: Eq + Hash + Copy,
 {
-    // return which two points are adjancent to our grid cell when we hit a knot
+    // return which two points are adjacent to our grid cell when we hit a knot
     // p is previous
     // c is where we are at
     fn adjcoords<T>(p: Coord<usize>, c: Coord<usize>, id: T, grid: &Array2<T>) -> [Coord<usize>; 2]
