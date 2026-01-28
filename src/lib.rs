@@ -302,6 +302,66 @@ where
     ret
 }
 
+/// Hierholzer's algorithm to find Euler circuit from adjacency
+/// adj represents the adjacency list of the directed graph
+/// returns a vector of vertex indices in order
+pub fn hierholzer(mut adj: Vec<Vec<usize>>) -> Option<Vec<usize>> {
+    if adj.is_empty() {
+        return None;
+    }
+
+    // number of outgoing edges per vertex (and indeg to just check)
+    let mut edge_count: HashMap<usize, usize> = HashMap::new();
+    let mut indeg: HashMap<usize, usize> = HashMap::new();
+    for i in 0..adj.len() {
+        edge_count.insert(i, adj[i].len());
+        for &v in &adj[i] {
+            *indeg.entry(v).or_insert(0) += 1;
+        }
+    }
+
+    // check in deg == out deg
+    for i in 0..adj.len() {
+        let out = *edge_count.get(&i)?;
+        let inn = *indeg.get(&i)?;
+        if out != inn {
+            return None;
+        }
+    }
+
+
+    // stack of current path, and final circuit
+    let mut curr_path: Vec<usize> = Vec::new();
+    let mut circuit: Vec<usize> = Vec::new();
+
+    // start anywhere
+    curr_path.push(0);
+    let mut curr_v: usize = 0;
+
+    while !curr_path.is_empty() {
+        let ec = edge_count.get(&curr_v)?;
+
+        // If there's remaining edge
+        if *ec > 0 {
+            curr_path.push(curr_v);
+
+            let next_v = adj[curr_v].pop()?;
+            let ec_mut = edge_count.get_mut(&curr_v)?;
+            *ec_mut -= 1;
+            
+            curr_v = next_v;
+        }
+        // Back track to find remaining circuit
+        else {
+            circuit.push(curr_v);
+            curr_v = curr_path.pop()?;
+        }
+    }
+
+    circuit.reverse();
+    Some(circuit)
+}
+
 /// Converts a collection of unordered grid edges that form a bunch of rings into a
 /// `LineString` or None if we can't.  The LineString can have repeated points, ie it can touch
 /// itself, however it will not cross itself.
@@ -326,213 +386,109 @@ where
 /// use geo::{Coord, LineString};
 /// use ndarray::array;
 ///
-/// let grid = array![[0]];
+/// let grid = array![[0, 0, 1],[1, 1, 0]];
 /// let e = geospatial::marching_squares(&grid);
-/// let ls = geospatial::edges_to_linestring(0, &e[&0], &grid);
-/// assert_eq!(ls, LineString::from(vec![
-///    Coord { x: 0, y: 0 },
-///    Coord { x: 0, y: 1 },
-///    Coord { x: 1, y: 1 },
-///    Coord { x: 1, y: 0 },
-///    Coord { x: 0, y: 0 },
-/// ]));
-/// let grid = array![
-///     [0, 1],
-///     [1, 1],
-/// ];
-/// let e = geospatial::marching_squares(&grid);
-/// let ls = geospatial::edges_to_linestring(0, &e[&0], &grid);
-/// assert_eq!(ls, LineString::from(vec![
-///    Coord { x: 0, y: 0 },
-///    Coord { x: 0, y: 1 },
-///    Coord { x: 1, y: 1 },
-///    Coord { x: 1, y: 0 },
-///    Coord { x: 0, y: 0 },
-/// ]));
-/// let grid = array![
-///     [1, 1],
-///     [1, 1],
-/// ];
-/// let e = geospatial::marching_squares(&grid);
-/// let ls = geospatial::edges_to_linestring(1, &e[&1], &grid);
-/// assert_eq!(ls, LineString::from(vec![
-///    Coord { x: 0, y: 0 },
-///    Coord { x: 0, y: 1 },
+/// let ls = geospatial::edges_to_linestring(&e[&1]);
+/// assert_eq!(ls, Some(LineString::from(vec![
 ///    Coord { x: 0, y: 2 },
 ///    Coord { x: 1, y: 2 },
 ///    Coord { x: 2, y: 2 },
 ///    Coord { x: 2, y: 1 },
+///    Coord { x: 3, y: 1 },
+///    Coord { x: 3, y: 0 },
 ///    Coord { x: 2, y: 0 },
-///    Coord { x: 1, y: 0 },
-///    Coord { x: 0, y: 0 },
-/// ]));
-/// let grid = array![
-///     [0, 1, 0],
-///     [1, 1, 1],
-///     [0, 1, 0],
-/// ];
-/// let e = geospatial::marching_squares(&grid);
-/// let ls = geospatial::edges_to_linestring(1, &e[&1], &grid);
-/// assert_eq!(ls, LineString::from(vec![
-///    Coord { x: 1, y: 0 },
+///    Coord { x: 2, y: 1 },
 ///    Coord { x: 1, y: 1 },
 ///    Coord { x: 0, y: 1 },
 ///    Coord { x: 0, y: 2 },
-///    Coord { x: 1, y: 2 },
+/// ])));
+/// let grid = array![[1, 1, 0, 1], [1, 0, 1, 0], [1, 1, 1, 0]];
+/// let e = geospatial::marching_squares(&grid);
+/// let ls = geospatial::edges_to_linestring(&e[&1]);
+/// assert_eq!(ls, Some(LineString::from(vec![
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 0, y: 0 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 0, y: 2 },
+///    Coord { x: 0, y: 3 },
 ///    Coord { x: 1, y: 3 },
 ///    Coord { x: 2, y: 3 },
-///    Coord { x: 2, y: 2 },
+///    Coord { x: 3, y: 3 },
 ///    Coord { x: 3, y: 2 },
 ///    Coord { x: 3, y: 1 },
+///    Coord { x: 4, y: 1 },
+///    Coord { x: 4, y: 0 },
+///    Coord { x: 3, y: 0 },
+///    Coord { x: 3, y: 1 },
+///    Coord { x: 2, y: 1 },
+///    Coord { x: 2, y: 2 },
+///    Coord { x: 1, y: 2 },
+///    Coord { x: 1, y: 1 },
 ///    Coord { x: 2, y: 1 },
 ///    Coord { x: 2, y: 0 },
 ///    Coord { x: 1, y: 0 },
-/// ]));
+/// ])));
+/// let grid = array![[0]];
+/// let e = geospatial::marching_squares(&grid);
+/// let ls = geospatial::edges_to_linestring(&e[&0]);
+/// assert_eq!(ls, Some(LineString::from(vec![
+///    Coord { x: 1, y: 0 },
+///    Coord { x: 0, y: 0 },
+///    Coord { x: 0, y: 1 },
+///    Coord { x: 1, y: 1 },
+///    Coord { x: 1, y: 0 },
+/// ])));
+/// let ls = geospatial::edges_to_linestring(&vec![(Coord {x:0, y:0}, Coord {x:0, y:1})]);
+/// assert_eq!(ls, None);
+/// let ls = geospatial::edges_to_linestring(&vec![]);
+/// assert_eq!(ls, None);
+/// let ls = geospatial::edges_to_linestring(&vec![(Coord {x:0, y:0}, Coord {x:0, y:1}), (Coord {x:0, y:0}, Coord {x:0, y:2})]);
+/// assert_eq!(ls, None);
 /// ```
-pub fn edges_to_linestring<T>(
-    id: T,
-    edges: &Vec<(Coord<usize>, Coord<usize>)>,
-    grid: &Array2<T>,
-) -> LineString<usize>
-where
-    T: Eq + Hash + Copy,
+pub fn edges_to_linestring(edges: &Vec<(Coord<usize>, Coord<usize>)>) -> Option<LineString<usize>>
 {
-
-    // join two linestrings without duplicating join point
-    fn join(a: &LineString<usize>, b: &LineString<usize>) -> LineString<usize> {
-        let mut coords = a.0.clone();
-        coords.extend_from_slice(&b.0[1..]);
-        LineString::new(coords)
-    }
-
-    // start with a bucket of short linestrings
-    let mut lines: Vec<LineString<usize>> = edges.iter().map(|e| LineString::new(vec![e.0, e.1])).collect();
-
-    loop {
-        // maintain mappings of ends of lines
-        let mut start2lids: HashMap<Coord<usize>, Vec<usize>> = HashMap::new();
-        let mut end2lids: HashMap<Coord<usize>, Vec<usize>> = HashMap::new();
-        for (i, ls) in lines.iter().enumerate() {
-            start2lids.entry(*ls.0.first().unwrap()).or_default().push(i);
-            end2lids.entry(*ls.0.last().unwrap()).or_default().push(i);
-        }
-
-        let mut merged = false;
-
-        for (pt, eids) in &end2lids {
-            // can't do anything if at knot ie. multiple lines end at pt
-            if eids.len() != 1 { continue; }
-
-            // ids of those that start at pt, if not 1 then a knot
-            let sids = match start2lids.get(&pt) {
-                Some(v) if v.len() == 1 => v,
-                _ => continue,
-            };
-
-            let eid = eids[0];
-            let sid = sids[0];
-
-            // pathological
-            if eid == sid { continue; }
-
-            let new = join(&lines[eid], &lines[sid]);
-
-            // remove higher index first
-            let (a, b) = if eid > sid { (eid, sid) } else { (sid, eid) };
-            lines.swap_remove(a);
-            lines.swap_remove(b);
-            lines.push(new);
-
-            merged = true;
-            break; // maps are invalid now, restart
-        }
-
-        if !merged {
-            break;
-        }
-    }
-
-#[derive(Debug)]
-struct Line {
-    coords: LineString<usize>,
-    start: Coord<usize>,
-    end: Coord<usize>,
-}
-struct Knot {
-    pt: Coord<usize>,
-    outgoing: Vec<usize>, // line indices
-}
-
-let mut lines: Vec<Line> = lines.into_iter().map(|ls| {
-    let start = *ls.0.first().unwrap();
-    let end = *ls.0.last().unwrap();
-    Line {coords: ls, start: start, end: end}
-}).collect();
-
-fn construct_knots(lines: &Vec<Line>) -> HashMap<Coord<usize>, Knot> {
-    let mut start_map: HashMap<Coord<usize>, Vec<usize>> = HashMap::new();
-    for (i, line) in lines.iter().enumerate() {
-        start_map.entry(line.start).or_default().push(i);
-    }
-
-    let mut knots: HashMap<Coord<usize>, Knot> = HashMap::new();
-    for (&pt, outgoing) in &start_map {
-        knots.insert(pt, Knot { pt, outgoing: outgoing.clone() });
-    }
-    knots
-}
-let knots = construct_knots(&lines);
-
-/// used is the indices of lines we have used in building current path
-fn connect_lines(lines: &mut Vec<Line>, knots: &HashMap<Coord<usize>, Knot>, used: &mut HashSet<usize>) -> bool
-{
-    // success, we have used all lines
-    if used.len() == lines.len() {
-        return true;
-    }
+    // we will use Hierholzer's_algorithm to find Euler circle through every vertex/Coord,
+    // including the knots which have index four
     
-     // pick next ambiguous knot with at least one unused outgoing line
-    let next_knot = knots.values().find(|k| k.outgoing.iter().any(|&i| !used.contains(&i)));
-    let next_knot = match next_knot {
-        Some(k) => k,
-        None => return false, // no usable lines left but not all lines used -> dead-end
+    // a vertex is Coord, keep track of Coord to vertex index
+    let mut vertices: HashMap<Coord<usize>, usize> = HashMap::new();
+
+    // adjancy matrix, the indices are vertex indices
+    //      adj[i] = [j] means edge i->j
+    //      adj[i] = [j, k] means edge i->j i->k
+    let mut adj: Vec<Vec<usize>> = Vec::new();
+
+    // this gets vertex ID, or makes one if necessary and enlarges adj
+    let get_vid = |c: Coord<usize>, vertices: &mut HashMap<Coord<usize>, usize>, adj: &mut Vec<Vec<usize>>| -> usize
+    {
+        if let Some(&id) = vertices.get(&c) {
+            return id;
+        }
+        let id = vertices.len();
+        vertices.insert(c, id);
+        adj.push(Vec::new());
+        id
     };
 
-    // try each outgoing line
-    for &line_idx in &next_knot.outgoing {
-        if used.contains(&line_idx) {
-            continue; // already used
-        }
-
-        // mark line as used
-        used.insert(line_idx);
-
-        // recurse from the other end of this line
-        let line = &lines[line_idx];
-        let next_pt = if line.start == next_knot.pt { line.end } else { line.start };
-
-        if connect_lines(lines, knots, used) {
-            return true; // success down this path
-        }
-
-        // backtrack
-        used.remove(&line_idx);
+    // build the adjancy
+    for (from, to) in edges {
+        let from_id = get_vid(*from, &mut vertices, &mut adj);
+        let to_id   = get_vid(*to, &mut vertices, &mut adj);
+        adj[from_id].push(to_id);
     }
 
-
-    // pick next ambiguous knot
-    // try each outgoing line
-    // mark as used, recurse
-    // backtrack if needed
-    return false;
-}
-
-
-    // knots are the starts and ends of the lines
-    
-    println!("{:?}", lines);
-    
-    return LineString::new(vec![Coord {x:0, y:0}, Coord {x:1, y:1}]);
+    // vec of vertex indices in order
+    if let Some(circuit) = hierholzer(adj) {
+        // we need to reverse the vertices map to get coords from vids
+        let mut vid2coord: HashMap<usize, Coord<usize>> = HashMap::new();
+        for (coord, vid) in vertices {
+            vid2coord.insert(vid, coord);
+        }
+        let ls: Vec<Coord<usize>> = circuit.into_iter().map(|vid| vid2coord.get(&vid).copied()).collect::<Option<Vec<_>>>()?;
+        return Some(LineString::new(ls));
+    } else {
+        return None;
+    }
 }
 
 /// Converts a collection of unordered grid edges that form a bunch of rings nto a
