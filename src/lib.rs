@@ -82,6 +82,238 @@ where
     out
 }
 
+/// Centreline intersection rasterization of a geo::LineString onto a grid of integer coords.
+///
+/// This function returns a `Vec<Coord<isize>>` containing all grid cells that the line
+/// passes through a cross in the centre of.  The algorithm is as described by Lindsay, J. B.
+/// (2016), the practice of DEM stream burning revisited.
+///
+/// # Parameters
+///
+/// - `ls`: A reference to a `LineString<f64>` to rasterize. Can be empty.  Each coord is x, y.
+///
+/// # Returns
+///
+/// A `Vec<Coord<isize>>` representing all the integer grid coordinates that the line touches a
+/// cross in the centre of.  These coords are (col, row), so if indexing into a DEM raster you will
+/// have to swap these.  The first and last cell are always included even if the line doesn't
+/// touch the cross in that cell and only intersects it.
+///
+/// # Examples
+/// ```
+/// use geo::{Coord, LineString};
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.75, y: 0.25 },
+///     Coord { x: 1.25, y: 0.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: -0.25, y: 0.25 },
+///     Coord { x: 1.25, y: 0.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:-1,y:0},
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.70, y: 0.25 },
+///     Coord { x: 1.70, y: 1.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:1},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.20, y: 0.25 },
+///     Coord { x: 2.70, y: 0.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///         Coord {x:2,y:0},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.0, y: 0.25 },
+///     Coord { x: 0.0, y: 1.9 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:0,y:1},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.80, y: 0.25 },
+///     Coord { x: 1.60, y: 1.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///         Coord {x:1,y:1},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.55, y: 0.25 },
+///     Coord { x: 1.05, y: 2.15 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:0,y:1},
+///         Coord {x:1,y:2},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.55, y: 0.25 },
+///     Coord { x: 1.45, y: 2.95 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:0,y:1},
+///         Coord {x:1,y:2},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 4.4, y: 2.2 },
+///     Coord { x: -1.7, y: -0.3 },
+///     Coord { x: 2.7, y: -3.3 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:4,y:2},
+///         Coord {x:3,y:1},
+///         Coord {x:2,y:1},
+///         Coord {x:1,y:1},
+///         Coord {x:0,y:0},
+///         Coord {x:-1,y:0},
+///         Coord {x:-2,y:-1},
+///         Coord {x:-1,y:-2},
+///         Coord {x:0,y:-2},
+///         Coord {x:1,y:-3},
+///         Coord {x:2,y:-4},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: -0.6, y: 4.2 },
+///     Coord { x: -1.7, y: -0.3 },
+///     Coord { x: 2.7, y: -3.3 },
+/// ]);
+/// assert_eq!(
+///     geospatial::centreline_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:-1,y:4},
+///         Coord {x:-1,y:3},
+///         Coord {x:-2,y:2},
+///         Coord {x:-2,y:1},
+///         Coord {x:-2,y:0},
+///         Coord {x:-2,y:-1},
+///         Coord {x:-1,y:-2},
+///         Coord {x:0,y:-2},
+///         Coord {x:1,y:-3},
+///         Coord {x:2,y:-4},
+///     ]
+/// );
+/// ```
+pub fn centreline_rasterize_linestring(ls: &LineString<f64>) -> Vec<Coord<isize>>
+{
+    let mut ret: Vec<Coord<isize>> = Vec::new();
+    let num: usize = ls.0.len();
+
+    if num < 2 {
+        return ret;
+    }
+
+    // first point on
+    let p: Coord<f64> = ls.0[0];
+    ret.push(Coord{ x: p.x.floor() as isize, y: p.y.floor() as isize});
+
+    fn rasterize_segment(p0: Coord<f64>, p1: Coord<f64>) -> Vec<Coord<isize>>
+    {
+        let Coord {x: x0, y: y0} = p0;
+        let Coord {x: x1, y: y1} = p1;
+
+        // Collect all centerline crossings as (t, col, row).
+        // is_vertical means checking where we cross vertical lines
+        let mut crossings: Vec<(f64, Coord<isize>)> = Vec::new();
+        let mut add_crossings = |x0: f64, x1: f64, y0: f64, y1: f64, is_vertical: bool| {
+            let (lo, hi) = if is_vertical { (x0, x1) } else { (y0, y1) };
+            let dx = x1 - x0;
+            let dy = y1 - y0;
+            let step = hi - lo;
+            let (lo, hi) = if step > 0.0 { (lo, hi) } else { (hi, lo) };
+
+            // too step or flat (if is_vertical is false)
+            if step.abs() < 1e-15 {
+                return;
+            }
+
+            // the cells that we cross the centre of, eg from 0.4 to 1.6 we would cross cell 0 (at
+            // 0.5) and cell 1 (at 1.5).
+            let min = (lo - 0.5).ceil() as isize;
+            let max = (hi - 0.5).floor() as isize;
+            for cell in min..=max {
+                // centre of each cell, eg 0.5, 1.5 etc
+                let centre = cell as f64 + 0.5;
+                // t is the parameter along the line segment where we hit centre
+                let t = (centre - if is_vertical {x0} else {y0} ) / step;
+                if t < -1e-12 || t > 1.0 + 1e-12 {
+                    continue;
+                }
+                let t = t.clamp(0.0, 1.0);
+
+                let (x, y) = if is_vertical {
+                    let y = y0 + t * dy;
+                    (cell, y.floor() as isize)
+                } else {
+                    let x = x0 + t * dx;
+                    (x.floor() as isize, cell)
+                };
+
+                crossings.push((t, Coord { x: x, y: y }));
+            }
+        };
+        add_crossings(x0, x1, y0, y1, true);
+        add_crossings(x0, x1, y0, y1, false);
+
+        crossings.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        crossings.into_iter().map(|(_, pt)| pt).collect()
+    }
+
+    for w in ls.0.windows(2) {
+        ret.extend(rasterize_segment(w[0], w[1]));
+    }
+
+    // last point on
+    let p: Coord<f64> = ls.0[num-1];
+    ret.push(Coord{ x: p.x.floor() as isize, y: p.y.floor() as isize});
+
+    ret.dedup_by(|a, b| a == b);
+    ret
+}
+
 /// Marching squares
 ///
 /// Extracts oriented boundary edges from a 2d array.  A horizontal or vertical edge exists between
