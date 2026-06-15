@@ -19,3 +19,4 @@ opt-level = 3
 geo = ">=0.20.0, <0.40.0"
 line_drawing = ">=1.0.0, < 2.0.0"
 ndarray = "0.16.1"
+rstar = "0.12.2"

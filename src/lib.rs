@@ -5,11 +5,13 @@
 //!
 
 use geo::line_intersection::{LineIntersection, line_intersection};
-use geo::{Coord, CoordNum, LineString, MultiLineString, Polygon};
+use geo::{Point, Coord, CoordNum, LineString, MultiLineString, Polygon};
 use line_drawing::{SignedNum, Supercover};
 use ndarray::Array2;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use rstar::PointDistance;
+
 
 /// Rasterizes a geo::LineString onto a grid of integer coordinates.
 ///
@@ -1093,3 +1095,291 @@ pub fn line_before_poly(linestr: &LineString<f64>, poly: &Polygon<f64>) -> LineS
 
     return LineString::from(pts);
 }
+
+/// Returns three lines by splitting a linee first part of a line before it hits polygon ring.  This is the linestring from
+/// start to that returned by first_line_poly_intersection.
+///
+/// # Examples
+///
+/// ```
+/// use geo::{Coord, LineString, Polygon};
+/// let poly = Polygon::new(LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]), vec![]);
+/// let line = LineString::from(vec![(0.5, 3.0), (0.5, 0.5), (2.0, 0.5)]);
+/// let (l1, l2, l3) = geospatial::trifurcate_line_by_poly(&line, &poly);
+/// assert_eq!(l1, LineString::from(vec![(0.5, 3.0), (0.5, 1.0)]));
+/// assert_eq!(l2, LineString::from(vec![(0.5, 1.0), (0.5, 0.5), (1.0, 0.5)]));
+/// assert_eq!(l3, LineString::from(vec![(1.0, 0.5), (2.0, 0.5)]));
+///
+/// let line = LineString::from(vec![(0.5, 3.0), (0.5, 2.0), (0.5, 0.5), (0.75, 0.0), (2.0, 0.5)]);
+/// let (l1, l2, l3) = geospatial::trifurcate_line_by_poly(&line, &poly);
+/// assert_eq!(l1, LineString::from(vec![(0.5, 3.0), (0.5, 2.0), (0.5, 1.0)]));
+/// assert_eq!(l2, LineString::from(vec![(0.5, 1.0), (0.5, 0.5), (0.75, 0.0), (1.0, 0.1)]));
+/// assert_eq!(l3, LineString::from(vec![(1.0, 0.1), (2.0, 0.5)]));
+///
+/// let line = LineString::from(vec![(0.5, 3.0), (1.5, 3.0)]);
+/// let (l1, l2, l3) = geospatial::trifurcate_line_by_poly(&line, &poly);
+/// assert_eq!(l1, LineString::from(vec![(0.5, 3.0), (1.5, 3.0)]));
+/// assert_eq!(l2, LineString::from(Vec::<Coord<f64>>::new()));
+/// assert_eq!(l3, LineString::from(Vec::<Coord<f64>>::new()));
+///
+/// let line = LineString::from(vec![(0.5, 2.0), (0.5, 0.5)]);
+/// let (l1, l2, l3) = geospatial::trifurcate_line_by_poly(&line, &poly);
+/// assert_eq!(l1, LineString::from(vec![(0.5, 2.0), (0.5, 1.0)]));
+/// assert_eq!(l2, LineString::from(Vec::<Coord<f64>>::new()));
+/// assert_eq!(l3, LineString::from(vec![(0.5, 1.0), (0.5, 0.5)]));
+/// ```
+pub fn trifurcate_line_by_poly(linestr: &LineString<f64>, poly: &Polygon<f64>) -> (LineString<f64>, LineString<f64>, LineString<f64>)
+{
+    let first: Option<Coord<f64>> = first_line_poly_intersection(linestr, poly);
+    let reversed: LineString<f64> = linestr.0.iter().cloned().rev().collect();
+    let second: Option<Coord<f64>> = first_line_poly_intersection(&reversed, poly);
+
+    let tol = 1e-12;
+
+    // line might completely miss poly
+    let (first, second) = match (first, second) {
+        (Some(f), Some(s)) => (f, s),
+        _ => return (linestr.clone(), LineString::new(Vec::<Coord>::new()), LineString::new(Vec::<Coord>::new()))
+    };
+
+    // for the distance we need Points
+    let fptr = Point::from(first);
+    let sptr = Point::from(second);
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum State {Before, Between, After}
+    let mut state = State::Before;
+
+    let mut l1 = Vec::<Coord<f64>>::new();
+    let mut l2 = Vec::<Coord<f64>>::new();
+    let mut l3 = Vec::<Coord<f64>>::new();
+
+    if let Some(first) = linestr.0.first() {
+        l1.push(*first);
+    }
+
+    for line in linestr.lines() {
+        if state == State::Before {
+            if line.distance_2(&fptr) <= tol {
+                l1.push(first);
+                l2.push(first);
+                state = State::Between;
+            } else {
+                l1.push(line.end);
+            }
+        }
+        if state == State::Between {
+            if line.distance_2(&sptr) <= tol {
+                l2.push(second);
+                l3.push(second);
+                state = State::After;
+            } else {
+                l2.push(line.end);
+            }
+        }
+        if state == State::After {
+            l3.push(line.end);
+        }
+    }
+
+    // it is possible to get degenerate lines (if first==second, or first at start of linestring, or
+    // second at end of linestring)
+    for l in [&mut l1, &mut l2, &mut l3] {
+        if l.len() == 1 || (l.len() == 2 && l[0] == l[1]) {
+            l.clear();
+        }
+    }
+    (LineString::from(l1), LineString::from(l2), LineString::from(l3))
+}
+
+/// Splits a line at the first intersection with polygon, returning the before and after lines
+///
+/// # Examples
+///
+/// ```
+/// use geo::{Coord, LineString, Polygon};
+/// let poly = Polygon::new(LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)]), vec![]);
+///
+/// let line = LineString::from(vec![(0.5, 3.0), (0.5, 0.5), (2.0, 0.5)]);
+/// let (l1, l2) = geospatial::split_line_at_poly(&line, &poly);
+/// assert_eq!(l1, LineString::from(vec![(0.5, 3.0), (0.5, 1.0)]));
+/// assert_eq!(l2, LineString::from(vec![(0.5, 1.0), (0.5, 0.5), (2.0, 0.5)]));
+///
+/// let line = LineString::from(vec![(0.5, 3.0), (0.5, 2.0), (0.5, 0.5), (0.75, 0.0), (2.0, 0.5)]);
+/// let (l1, l2) = geospatial::split_line_at_poly(&line, &poly);
+/// assert_eq!(l1, LineString::from(vec![(0.5, 3.0), (0.5, 2.0), (0.5, 1.0)]));
+/// assert_eq!(l2, LineString::from(vec![(0.5, 1.0), (0.5, 0.5), (0.75, 0.0), (2.0, 0.5)]));
+///
+/// let line = LineString::from(vec![(0.5, 3.0), (1.5, 3.0)]);
+/// let (l1, l2) = geospatial::split_line_at_poly(&line, &poly);
+/// assert_eq!(l1, LineString::from(vec![(0.5, 3.0), (1.5, 3.0)]));
+/// assert_eq!(l2, LineString::from(Vec::<Coord<f64>>::new()));
+///
+/// let line = LineString::from(vec![(0.5, 2.0), (0.5, 0.5)]);
+/// let (l1, l2) = geospatial::split_line_at_poly(&line, &poly);
+/// assert_eq!(l1, LineString::from(vec![(0.5, 2.0), (0.5, 1.0)]));
+/// assert_eq!(l2, LineString::from(vec![(0.5, 1.0), (0.5, 0.5)]));
+/// ```
+pub fn split_line_at_poly(linestr: &LineString<f64>, poly: &Polygon<f64>) -> (LineString<f64>, LineString<f64>) {
+    let ring = poly.exterior();
+    let mut before: Vec<Coord<f64>> = Vec::new();
+    let mut after: Vec<Coord<f64>> = Vec::new();
+    if let Some(first) = linestr.0.first() {
+        before.push(*first);
+    }
+
+    // indicates we have found the split and have finished filling up before
+    let mut found = false;
+
+    for line in linestr.lines() {
+        if found {
+            after.push(line.end);
+            continue;
+        }
+
+        // get intersections, there could be more than one crossing, get them all
+        let ints: Vec<Coord<f64>> = ring.lines().flat_map(|seg|
+            match line_intersection(line, seg) {
+                Some(LineIntersection::SinglePoint { intersection, .. }) => vec![intersection],
+                Some(LineIntersection::Collinear { intersection }) => vec![intersection.start, intersection.end],
+                None => Vec::new(),
+            }
+        ).collect();
+
+        // get the closest intersection to line.start
+        let closest: Option<Coord<f64>> = ints.iter().filter(|p| {
+            let d = (p.x - line.start.x).powi(2) + (p.y - line.start.y).powi(2);
+            d > 1e-24  // skip if intersection is at line.start
+        }).min_by(|a, b| {
+            let da = (a.x - line.start.x).powi(2) + (a.y - line.start.y).powi(2);
+            let db = (b.x - line.start.x).powi(2) + (b.y - line.start.y).powi(2);
+            da.partial_cmp(&db).unwrap()
+        }).copied();
+
+        if let Some(p) = closest {
+            before.push(p);
+            after.push(p);
+            after.push(line.end);
+            found = true;
+        } else {
+            before.push(line.end);
+        }
+
+    }
+    // handle degenerate cases where intersection is at the very first/last point
+    if before.len() == 2 && before[0] == before[1] {
+        before = Vec::new();
+    }
+    if after.len() == 2 && after[0] == after[1] {
+        after = Vec::new();
+    }
+    (LineString::from(before), LineString::from(after))
+}
+
+
+/// Splits a line n (odd) times at polygon intersections, the middle section gets the remainder of
+/// the linestring.
+///
+/// # Examples
+///
+/// ```
+/// use geo::{Coord, LineString, Polygon};
+/// let poly = Polygon::new(LineString::from(vec![(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (1.0, 1.0), (1.0, 2.0), (2.0, 2.0), (2.0, 3.0), (0.0, 3.0), (0.0, 0.0)]), vec![]);
+///
+/// let line = LineString::from(vec![(1.5, 4.0), (1.5, -0.5)]);
+/// let parts = geospatial::cut_line_by_poly(&line, &poly, 5);
+/// assert_eq!(parts[0], LineString::from(vec![(1.5, 4.0), (1.5, 3.0)]));
+/// assert_eq!(parts[1], LineString::from(vec![(1.5, 3.0), (1.5, 2.0)]));
+/// assert_eq!(parts[2], LineString::from(vec![(1.5, 2.0), (1.5, 1.0)]));
+/// assert_eq!(parts[3], LineString::from(vec![(1.5, 1.0), (1.5, 0.0)]));
+/// assert_eq!(parts[4], LineString::from(vec![(1.5, 0.0), (1.5, -0.5)]));
+///
+/// let line = LineString::from(vec![(2.5, 4.0), (2.5, -0.5)]);
+/// let parts = geospatial::cut_line_by_poly(&line, &poly, 5);
+/// assert_eq!(parts[0], LineString::from(vec![(2.5, 4.0), (2.5, -0.5)]));
+/// assert_eq!(parts[1], LineString::from(Vec::<Coord<f64>>::new()));
+/// assert_eq!(parts[2], LineString::from(Vec::<Coord<f64>>::new()));
+/// assert_eq!(parts[3], LineString::from(Vec::<Coord<f64>>::new()));
+/// assert_eq!(parts[4], LineString::from(Vec::<Coord<f64>>::new()));
+///
+/// let line = LineString::from(vec![(0.5, 4.0), (0.5, -0.5)]);
+/// let parts = geospatial::cut_line_by_poly(&line, &poly, 5);
+/// assert_eq!(parts[0], LineString::from(vec![(0.5, 4.0), (0.5, 3.0)]));
+/// assert_eq!(parts[1], LineString::from(vec![(0.5, 3.0), (0.5, 0.0)]));
+/// assert_eq!(parts[2], LineString::from(Vec::<Coord<f64>>::new()));
+/// assert_eq!(parts[3], LineString::from(Vec::<Coord<f64>>::new()));
+/// assert_eq!(parts[4], LineString::from(vec![(0.5, 0.0), (0.5, -0.5)]));
+///
+/// let line = LineString::from(vec![(1.0, 4.0), (1.0, -0.5)]);
+/// let parts = geospatial::cut_line_by_poly(&line, &poly, 5);
+/// assert_eq!(parts[0], LineString::from(vec![(1.0, 4.0), (1.0, 3.0)]));
+/// assert_eq!(parts[1], LineString::from(vec![(1.0, 3.0), (1.0, 2.0)]));
+/// assert_eq!(parts[2], LineString::from(vec![(1.0, 2.0), (1.0, 1.0)]));
+/// assert_eq!(parts[3], LineString::from(vec![(1.0, 1.0), (1.0, 0.0)]));
+/// assert_eq!(parts[4], LineString::from(vec![(1.0, 0.0), (1.0, -0.5)]));
+///
+/// let line = LineString::from(vec![(-1.0, 4.0), (3.0, 0.0)]);
+/// let parts = geospatial::cut_line_by_poly(&line, &poly, 5);
+/// assert_eq!(parts[0], LineString::from(vec![(-1.0, 4.0), (0.0, 3.0)]));
+/// assert_eq!(parts[1], LineString::from(vec![(0.0, 3.0), (1.0, 2.0)]));
+/// assert_eq!(parts[2], LineString::from(Vec::<Coord<f64>>::new()));
+/// assert_eq!(parts[3], LineString::from(vec![(1.0, 2.0), (2.0, 1.0)]));
+/// assert_eq!(parts[4], LineString::from(vec![(2.0, 1.0), (3.0, 0.0)]));
+///
+/// let line = LineString::from(vec![(1.5, 4.0), (1.5, 3.5), (1.5, -0.5)]);
+/// let parts = geospatial::cut_line_by_poly(&line, &poly, 5);
+/// assert_eq!(parts[0], LineString::from(vec![(1.5, 4.0), (1.5, 3.5), (1.5, 3.0)]));
+/// assert_eq!(parts[1], LineString::from(vec![(1.5, 3.0), (1.5, 2.0)]));
+/// assert_eq!(parts[2], LineString::from(vec![(1.5, 2.0), (1.5, 1.0)]));
+/// assert_eq!(parts[3], LineString::from(vec![(1.5, 1.0), (1.5, 0.0)]));
+/// assert_eq!(parts[4], LineString::from(vec![(1.5, 0.0), (1.5, -0.5)]));
+///
+/// let line = LineString::from(vec![(1.5, 4.0), (1.7, 3.1), (1.5, 3.0), (1.5, -0.5)]);
+/// let parts = geospatial::cut_line_by_poly(&line, &poly, 5);
+/// assert_eq!(parts[0], LineString::from(vec![(1.5, 4.0), (1.7, 3.1), (1.5, 3.0)]));
+/// assert_eq!(parts[1], LineString::from(vec![(1.5, 3.0), (1.5, 2.0)]));
+/// assert_eq!(parts[2], LineString::from(vec![(1.5, 2.0), (1.5, 1.0)]));
+/// assert_eq!(parts[3], LineString::from(vec![(1.5, 1.0), (1.5, 0.0)]));
+/// assert_eq!(parts[4], LineString::from(vec![(1.5, 0.0), (1.5, -0.5)]));
+///
+/// let line = LineString::from(vec![(1.5, 4.0), (1.5, 2.0), (1.8, 1.6), (1.7, 1.5), (1.5, 1.0), (1.5, -0.5)]);
+/// let parts = geospatial::cut_line_by_poly(&line, &poly, 5);
+/// assert_eq!(parts[0], LineString::from(vec![(1.5, 4.0), (1.5, 3.0)]));
+/// assert_eq!(parts[1], LineString::from(vec![(1.5, 3.0), (1.5, 2.0)]));
+/// assert_eq!(parts[2], LineString::from(vec![(1.5, 2.0), (1.8, 1.6), (1.7, 1.5), (1.5, 1.0)]));
+/// assert_eq!(parts[3], LineString::from(vec![(1.5, 1.0), (1.5, 0.0)]));
+/// assert_eq!(parts[4], LineString::from(vec![(1.5, 0.0), (1.5, -0.5)]));
+///
+///
+/// ```
+pub fn cut_line_by_poly(linestr: &LineString<f64>, poly: &Polygon<f64>, n: usize) -> Vec<LineString<f64>> {
+    assert!(n % 2 == 1, "n must be odd");
+    let num_cuts = (n - 1) / 2;
+
+    let mut rest = linestr.clone();
+    let mut head_pieces: Vec<LineString<f64>> = Vec::new();
+    let mut tail_pieces: Vec<LineString<f64>> = Vec::new();
+
+
+    for _ in 0..num_cuts {
+        let (head, new_rest) = split_line_at_poly(&rest, poly);
+        head_pieces.push(head);
+        rest = new_rest;
+        let rev: LineString<f64> = rest.0.iter().cloned().rev().collect();
+        let (tail_rev, rest_rev) = split_line_at_poly(&rev, poly);
+        let tail: LineString<f64> = tail_rev.0.iter().cloned().rev().collect();
+        rest = rest_rev.0.iter().cloned().rev().collect();
+        tail_pieces.push(tail);
+    }
+
+    let mut result = head_pieces;
+    result.push(rest);
+    result.extend(tail_pieces.into_iter().rev());
+    result.iter().map(|ls| {
+        let mut pts = ls.0.clone();
+        pts.dedup();
+        LineString::from(pts)
+    }).collect()
+
+}
+
