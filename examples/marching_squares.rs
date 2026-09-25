@@ -9,5 +9,13 @@ fn main() {
     ];
     let e = marching_squares(&grid);
     println!("grid = {:?}\nedges are {:?}", grid, e);
+
+    let grid = array![
+        [1, 1, 1],
+        [1, 2, 1],
+        [1, 1, 1],
+    ];
+    let e = marching_squares(&grid);
+    println!("grid =\n{:?}\nedges are {:?}", grid, e);
 }
 

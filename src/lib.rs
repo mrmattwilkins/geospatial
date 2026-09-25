@@ -12,6 +12,167 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use rstar::PointDistance;
 
+/// Combine adjacent cells in raster by relabelling to common values
+///
+/// Takes a 2d array of values, and a hashset of values that will be considered as combinable.
+/// If two horizontally or vertically adjacent cells both have values in combinable, they belong to
+/// the same region, regardless of whether their original values differ.
+///
+/// # Parameters
+///
+/// - data: A Array2 of a hashable type such as usize.
+/// - combinable: HashSet of same type as data, only values in here will be considered for combining
+///
+/// # Returns
+///
+/// - Nothing, data is mutated in place
+///
+/// # Examples
+///
+/// ```
+/// use ndarray::{array, Array2};
+/// use std::collections::HashSet;
+///
+/// let mut data = array![[]];
+/// let vals = HashSet::<usize>::from([1]);
+/// geospatial::raster_combine_regions::<usize>(&mut data, &vals);
+/// assert_eq!(data, array![[]]);
+///
+/// let mut data = array![[1]];
+/// let vals = HashSet::<usize>::from([1]);
+/// geospatial::raster_combine_regions::<usize>(&mut data, &vals);
+/// assert_eq!(data, array![[1]]);
+///
+/// let mut data = array![
+///     [1, 2],
+///     [2, 1],
+/// ];
+/// let vals = HashSet::<usize>::from([1]);
+/// geospatial::raster_combine_regions::<usize>(&mut data, &vals);
+/// assert_eq!(data, array![
+///     [1, 2],
+///     [2, 1],
+/// ]);
+///
+/// let mut data = array![
+///     [2, 2, 3],
+///     [2, 1, 3],
+///     [2, 1, 3],
+/// ];
+/// let vals = HashSet::<usize>::from([1, 3]);
+/// geospatial::raster_combine_regions::<usize>(&mut data, &vals);
+/// assert_eq!(data, array![
+///     [2, 2, 1],
+///     [2, 1, 1],
+///     [2, 1, 1],
+/// ]);
+///
+/// let mut data = array![
+///     [5, 6, 3, 7],
+///     [4, 4, 3, 8],
+///     [2, 2, 3, 9],
+///     [2, 2, 3, 3],
+/// ];
+/// let vals = HashSet::<usize>::from([4, 5, 6, 7, 8, 9]);
+/// geospatial::raster_combine_regions::<usize>(&mut data, &vals);
+/// assert_eq!(data, array![
+///     [4, 4, 3, 7],
+///     [4, 4, 3, 7],
+///     [2, 2, 3, 7],
+///     [2, 2, 3, 3],
+/// ]);
+/// ```
+pub fn raster_combine_regions<T>(data: &mut Array2<T>, combinable: &HashSet<T>) 
+where
+    T: Eq + Hash + Copy + Ord,
+{
+
+    // Parent map for union-find. Every combinable value initially points
+    // to itself
+    let mut parent: HashMap<T, T> = combinable.iter().map(|&v| (v, v)).collect();
+
+    fn find<T>(parent: &mut HashMap<T, T>, value: T) -> T
+    where
+        T: Eq + Hash + Copy + Ord,
+    {
+        let mut root = value;
+
+        // Find root
+        loop {
+            let next = parent[&root];
+            if next == root {
+                break;
+            }
+            root = next;
+        }
+
+        // Path compression
+        let mut current = value;
+        while parent[&current] != root {
+            let next = parent[&current];
+            parent.insert(current, root);
+            current = next;
+        }
+
+        root
+    }
+
+    fn union<T>(parent: &mut HashMap<T, T>, a: T, b: T)
+    where
+        T: Eq + Hash + Copy + Ord,
+    {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+
+        if ra != rb {
+            if ra < rb {
+                parent.insert(rb, ra);
+            } else {
+                parent.insert(ra, rb);
+            }
+        }
+    }
+
+    let (nrows, ncols) = data.dim();
+
+    // First pass: find connected combinable values.
+    //
+    // Only right and below need checking, since every pair will be
+    // encountered once.
+    for row in 0..nrows {
+        for col in 0..ncols {
+            let value = &data[[row, col]];
+
+            if !combinable.contains(value) {
+                continue;
+            }
+
+            if col + 1 < ncols {
+                let right = &data[[row, col + 1]];
+                if combinable.contains(right) {
+                    union(&mut parent, *value, *right);
+                }
+            }
+
+            if row + 1 < nrows {
+                let below = &data[[row + 1, col]];
+                if combinable.contains(below) {
+                    union(&mut parent, *value, *below);
+                }
+            }
+        }
+    }
+
+    // Second pass: replace each combinable value with the representative
+    // of its connected component.
+    for value in data.iter_mut() {
+        if combinable.contains(value) {
+            let root = find(&mut parent, *value);
+            *value = root;
+        }
+    }
+}
+
 
 /// Rasterizes a geo::LineString onto a grid of integer coordinates.
 ///
@@ -316,6 +477,282 @@ pub fn centreline_rasterize_linestring(ls: &LineString<f64>) -> Vec<Coord<isize>
     ret
 }
 
+/// Returns all grid cells whose *interior* a `LineString<f64>` passes through.
+///
+/// Uses a DDA/voxel-traversal walk (Amanatides & Woo style): starting from the
+/// cell containing the first point, repeatedly step into whichever neighbouring
+/// cell the line crosses into next, until the cell containing the last point is
+/// reached. When the line passes exactly through a grid corner, both axes are
+/// stepped at once so the two cells that only share that corner point (not any
+/// interior) are skipped.
+///
+/// Always includes the first and last cell even if just touching at a corner
+///
+/// # Parameters
+/// - `ls`: line to rasterize. Can be empty.
+///
+/// # Returns
+/// `Vec<Coord<isize>>` of (col, row) cells, first and last cell always included.
+///
+/// # Examples
+/// ```
+/// use geo::{Coord, LineString};
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.75, y: 0.25 },
+///     Coord { x: 1.25, y: 0.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: -0.25, y: 0.25 },
+///     Coord { x: 1.25, y: 0.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:-1,y:0},
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.70, y: 0.25 },
+///     Coord { x: 1.70, y: 1.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///         Coord {x:1,y:1},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.20, y: 0.25 },
+///     Coord { x: 2.70, y: 0.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///         Coord {x:2,y:0},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.0, y: 0.25 },
+///     Coord { x: 0.0, y: 1.9 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:0,y:1},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.80, y: 0.25 },
+///     Coord { x: 1.60, y: 1.25 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:0},
+///         Coord {x:1,y:1},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.55, y: 0.25 },
+///     Coord { x: 1.05, y: 2.15 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:0,y:1},
+///         Coord {x:1,y:1},
+///         Coord {x:1,y:2},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.55, y: 0.25 },
+///     Coord { x: 1.45, y: 2.95 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:0,y:1},
+///         Coord {x:1,y:1},
+///         Coord {x:1,y:2},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 4.4, y: 2.2 },
+///     Coord { x: -1.7, y: -0.3 },
+///     Coord { x: 2.7, y: -3.3 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:4,y:2},
+///         Coord {x:3,y:2},
+///         Coord {x:3,y:1},
+///         Coord {x:2,y:1},
+///         Coord {x:1,y:1},
+///         Coord {x:1,y:0},
+///         Coord {x:0,y:0},
+///         Coord {x:-1,y:0},
+///         Coord {x:-1,y:-1},
+///         Coord {x:-2,y:-1},
+///         Coord {x:-1,y:-1},
+///         Coord {x:-1,y:-2},
+///         Coord {x:0,y:-2},
+///         Coord {x:0,y:-3},
+///         Coord {x:1,y:-3},
+///         Coord {x:2,y:-3},
+///         Coord {x:2,y:-4},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.0, y: 0.0 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.1, y: 0.1 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///     ]
+/// );
+/// let ls: LineString<f64> = LineString::new(vec![
+///     Coord { x: 0.0, y: 0.0 },
+///     Coord { x: 3.0, y: 3.0 },
+/// ]);
+/// assert_eq!(
+///     geospatial::interior_rasterize_linestring(&ls),
+///     vec![
+///         Coord {x:0,y:0},
+///         Coord {x:1,y:1},
+///         Coord {x:2,y:2},
+///     ]
+/// );
+/// ```
+///
+pub fn interior_rasterize_linestring(ls: &LineString<f64>) -> Vec<Coord<isize>> {
+    let mut ret: Vec<Coord<isize>> = Vec::new();
+    let num = ls.0.len();
+
+    const EPS: f64 = 1e-9;
+    let on_grid_line = |v: f64| (v - v.round()).abs() < EPS;
+
+    if num == 0 {
+        return ret;
+    }
+
+    if num == 1 {
+        let p = ls.0[0];
+        if on_grid_line(p.x) || on_grid_line(p.y) {
+            return ret; // on an edge or corner: touches no cell interior
+        }
+        ret.push(Coord { x: p.x.floor() as isize, y: p.y.floor() as isize });
+        return ret;
+    }
+
+
+    // Floors `v`, but if `v` sits exactly on an integer boundary and we're
+    // moving in the negative direction along this axis, treats it as
+    // belonging to the cell below rather than the cell above.
+    fn floor_towards(v: f64, d: f64) -> isize {
+        let f = v.floor();
+        if d < 0.0 && (v - f).abs() < 1e-9 {
+            f as isize - 1
+        } else {
+            f as isize
+        }
+    }
+
+    fn rasterize_segment(p0: Coord<f64>, p1: Coord<f64>) -> Vec<Coord<isize>> {
+        let dx = p1.x - p0.x;
+        let dy = p1.y - p0.y;
+
+        if dx.abs() < 1e-15 && dy.abs() < 1e-15 {
+            let cell = Coord { x: p0.x.floor() as isize, y: p0.y.floor() as isize };
+            return vec![cell];
+        }
+
+        let mut cell = Coord {
+            x: floor_towards(p0.x, dx),
+            y: floor_towards(p0.y, dy),
+        };
+
+        let step_x: isize = if dx > 0.0 { 1 } else if dx < 0.0 { -1 } else { 0 };
+        let step_y: isize = if dy > 0.0 { 1 } else if dy < 0.0 { -1 } else { 0 };
+
+        let t_delta_x = if dx != 0.0 { 1.0 / dx.abs() } else { f64::INFINITY };
+        let t_delta_y = if dy != 0.0 { 1.0 / dy.abs() } else { f64::INFINITY };
+
+        let next_x = if step_x > 0 { (cell.x + 1) as f64 } else { cell.x as f64 };
+        let next_y = if step_y > 0 { (cell.y + 1) as f64 } else { cell.y as f64 };
+
+        let mut t_max_x = if dx != 0.0 { (next_x - p0.x) / dx } else { f64::INFINITY };
+        let mut t_max_y = if dy != 0.0 { (next_y - p0.y) / dy } else { f64::INFINITY };
+
+        let mut out = vec![cell];
+        const EPS: f64 = 1e-9;
+
+        loop {
+            let next_t = t_max_x.min(t_max_y);
+            if next_t > 1.0 - EPS {
+                break; // nothing left before the endpoint
+            }
+            if (t_max_x - t_max_y).abs() < EPS {
+                // exact corner crossing: jump diagonally, skip the two
+                // cells that only share that corner point
+                cell.x += step_x;
+                cell.y += step_y;
+                t_max_x += t_delta_x;
+                t_max_y += t_delta_y;
+            } else if t_max_x < t_max_y {
+                cell.x += step_x;
+                t_max_x += t_delta_x;
+            } else {
+                cell.y += step_y;
+                t_max_y += t_delta_y;
+            }
+            out.push(cell);
+        }
+        out
+    }
+
+    for w in ls.0.windows(2) {
+        ret.extend(rasterize_segment(w[0], w[1]));
+    }
+
+    ret.dedup_by(|a, b| a == b);
+    ret
+}
+
+
 /// Marching squares
 ///
 /// Extracts oriented boundary edges from a 2d array.  A horizontal or vertical edge exists between
@@ -323,7 +760,8 @@ pub fn centreline_rasterize_linestring(ls: &LineString<f64>) -> Vec<Coord<isize>
 /// different values. It is intended for
 /// grids containing region or watershed labels, where each distinct value represents
 /// a separate area and you want to get the boundary edges.  The edges are oriented so the inside
-/// is to the left
+/// is to the left.  The edges have x coord first then y coord, and y increases downwards so y=0 is
+/// at the top of the grid (and x=0 is the left hand side).
 ///
 /// # Parameters
 ///
@@ -596,13 +1034,15 @@ pub fn hierholzer(mut adj: Vec<Vec<usize>>) -> Option<Vec<usize>> {
     Some(circuit)
 }
 
-/// Converts a collection of unordered grid edges that form a bunch of rings into a
-/// `LineString` or None if we can't.  The LineString can have repeated points, ie it can touch
-/// itself, however it will not cross itself.
+/// Returns the first `LineString` found amongst a collection of unordered grid edges that form a
+/// bunch of rings or None if we can't.  The LineString can have repeated points, ie it can touch
+/// itself, however it will not cross itself.  Note that if the edges form a polygon with no
+/// internal holes that boundary will be returned, but if the edges makes up multiple rings only one
+/// will be return.  See edges_to_linestrings to get all linestrings.
 ///
-/// This function takes a list of edges, where each edge is represented by a pair
-/// of grid coordinates, and converts them into a `LineString`.
-/// The edges should completely encircle regions.
+/// This function takes a list of edges, where each edge is represented by a pair of grid
+/// coordinates, and converts some of them into a `LineString`. The edges should completely encircle
+/// regions.
 ///
 /// # Parameters
 ///
@@ -723,6 +1163,89 @@ pub fn edges_to_linestring(edges: &Vec<(Coord<usize>, Coord<usize>)>) -> Option<
     } else {
         return None;
     }
+}
+
+/// Returns all the LineStrings that can be made from a collection of unordered grid edges that form a
+/// bunch of rings.  The LineString can have repeated points, ie it can touch
+/// itself, however it will not cross itself.
+///
+/// This function takes a list of edges, where each edge is represented by a pair of grid
+/// coordinates, and converts them all into a Vec of `LineString`. The edges should completely
+/// encircle regions.
+///
+/// # Parameters
+///
+/// - `edges`: A vector of edge segments, where each edge is represented as a pair
+///   of `Coord<usize>` values defining the start and end points.
+///
+/// # Returns
+///
+/// A Vec<Option<LineString<usize>>> where input edges have been ordered to make a
+/// LineStrings.
+///
+/// # Examples
+///
+/// ```
+/// use geo::{Coord, LineString};
+/// use ndarray::array;
+///
+/// ```
+pub fn edges_to_linestrings(edges: &Vec<(Coord<usize>, Coord<usize>)>) -> Vec<LineString<usize>>
+{
+    // form groups of touching edges.
+
+    // coords[i] is HashSet<Coord> of coords in this bag
+    let mut coords: Vec<HashSet<Coord<usize>>> = Vec::new();
+    // bags[i] is a vec of edges
+    let mut bags: Vec<Vec<(Coord<usize>, Coord<usize>)>> = Vec::new();
+
+    for &e in edges {
+        let touching: Vec<usize> = coords.iter().enumerate().filter_map(|(i, c)| {
+            if c.contains(&e.0) || c.contains(&e.1) {
+                Some(i)
+            } else {
+                None
+            }
+        }).collect();
+
+        match touching.len() {
+            0 => {
+                let mut hs = HashSet::new();
+                hs.insert(e.0);
+                hs.insert(e.1);
+                coords.push(hs);
+                bags.push(vec![e]);
+            }
+
+            1 => {
+                let i = touching[0];
+                coords[i].insert(e.0);
+                coords[i].insert(e.1);
+                bags[i].push(e);
+            }
+
+            2 => {
+                // edge bridges two bags
+                let keep = touching[0].min(touching[1]);
+                let other = touching[0].max(touching[1]);
+
+                coords[keep].insert(e.0);
+                coords[keep].insert(e.1);
+                bags[keep].push(e);
+
+                let other_coords = coords.swap_remove(other);
+                let other_bag = bags.swap_remove(other);
+
+                coords[keep].extend(other_coords);
+                bags[keep].extend(other_bag);
+            }
+
+            _ => panic!("While combining edges into bags, found an edge that bridges more than 2 bags")
+        }
+    }
+
+    bags.iter().filter_map(|b| edges_to_linestring(b)).collect()
+
 }
 
 /// Converts a collection of unordered grid edges that form a bunch of rings nto a
